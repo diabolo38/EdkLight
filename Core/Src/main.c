@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -59,7 +60,7 @@ void SystemClock_Config(void);
 int LightOn=0;
 struct UartRcv_t {
 	char RxByte; // recv byte
-	uint8_t nRx;   // Data cnt in Rx Buf
+	volatile uint8_t nRx;   // Data cnt in Rx Buf
 	uint8_t RxMax; // Size of burst
 
 	char HdrByte; // first byte expected value
@@ -68,7 +69,7 @@ struct UartRcv_t {
 	char *RxBuf; //
 
 	int nErr;
-	int TimedOut;
+	volatile int TimedOut;
 	uint32_t LastRcvGood; // tick last good rx occured
 	uint32_t BadRx;
 	UART_HandleTypeDef *huart;
@@ -130,12 +131,15 @@ struct UartRcv_t   MotRx = {
 		.HdrByte = 0x43,
 		.RxBuf = Rx2Buf,
 		.RxBufSz = sizeof(Rx2Buf),
-		.huart = &huart2, //  PA3     ------> USART2_RX
+		.huart = &huart2,
+		// PA3     ------> USART2_RX
+	    // PA2     ------> USART2_TX
 		.htim = &htim3,
 };
 
 void KickRx(struct UartRcv_t *Rx){
 	Rx->nRx=0;
+	__HAL_TIM_DISABLE(Rx->htim);
 	HAL_UART_Receive_IT(Rx->huart, (void*)Rx->RxBuf,1);
 }
 
@@ -169,6 +173,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
 	HAL_UART_Receive_IT(Rx->huart, (void*)&Rx->RxByte,1);
 	Rcv_ReamTimeOut(Rx);
 }
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	struct UartRcv_t  *Rx = htim == EdkRx.htim ? &EdkRx : &MotRx;
+	Rx->TimedOut = 1;
+	__HAL_TIM_DISABLE(htim);
+	htim->Instance->CNT = 0 ;
+}
 /**
  * reset reception
  */
@@ -177,6 +189,14 @@ void RxReset( struct UartRcv_t  *Rx){
 	 Rx->TimedOut = 0;
 }
 char DbgTx[16]={};
+
+void DoDbgTx(int *Cnt){
+	if( Cnt && MotRx.huart->gState ==  HAL_UART_STATE_READY ){
+		HAL_UART_Transmit_DMA(MotRx.huart, (void*)DbgTx,*Cnt);
+		*Cnt= 0;
+	}
+
+}
 /* USER CODE END 0 */
 
 /**
@@ -210,22 +230,21 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-
+  KickRx(&EdkRx);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-
-	  //Check for 2 Rx time out ou Rx liit
-	  for( i=0; i<2; i ++ ) {
+  	  //Check for 2 Rx time out ou Rx liit
+	  for( i=0; i<1; i ++ ) { //dbgg only run the displauy rx
 		 Rx = i==0 ? &EdkRx : &MotRx;
 
 		 if ( Rx->nRx >=  Rx->RxMax ){
@@ -240,7 +259,9 @@ int main(void)
 	  }
 	  if( DbgTxCnt ){
 		 // DbgTxCnt
+		  DoDbgTx((void*)&DbgTxCnt);
 	  }
+    /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
