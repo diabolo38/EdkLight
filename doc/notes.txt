@@ -1,0 +1,121 @@
+connector 
+========
+ Higo Julet 65 pin , confirmed color as per my cable 
+             (top Notch)
+                   U     
+  Gnd/Green     +    +  Key on /Red
+Tx(RxLCD)/Blue  +    +  Rx(Tx lcd)/ Yellow
+                  +
+                 V+/Black (Bottom centered pin)
+
+Timers
+-------- 
+ # RX x1 x2 ?  idlle eof  time out  if to snif 2 Rx/Tx lcd/motor 
+ # Rear Light PWM brake/full => this may not work if light has it's own dc/dc bug eniugh cap unless pwm period quite low ( aka 100Hz range)
+ # (opt? )  Rear blink time 
+   
+
+RX uart
+======
+
+9600 bps ~ 1ms/byte (8n1 => 10 bit per byte)
+
+protol see https://github.com/hurzhurz/tsdz2/blob/master/serial-communication.md
+
+Lcd to motor 
+------------
+Freq 15Hz  66.7ms period 
+7 byte packet (~7ms time)
+https://github.com/hurzhurz/tsdz2/blob/master/serial-communication.md#motor-status-flags
+
+Rx idlle time out of 2ms shall be good eought , we rese cnt on  each byute rcv 
+when timer end we can reset rx burst and stop timer until first of next burst 
+
+
+Power
+------
+LiPo 13s 54.6V max, 48.1V nomimal
+IRFZ44N     vds max 55V  :( dangereous 
+stp60nf06   vds max 60V  still close 10% margin vs max volt
+
+
+EDK sent PAS 1 light off 
+
+name	type	start_time	duration	data
+Async Serial	data	-0.00009808	0.00098944	0x59
+Async Serial	data	0.000948	0.00098944	0x80
+Async Serial	data	0.00199424	0.00098944	0x00
+Async Serial	data	0.00304032	0.00098944	0x1A
+Async Serial	data	0.00408656	0.00098944	0x00
+Async Serial	data	0.00513264	0.00098944	0x3C
+Async Serial	data	0.00617872	0.00098944	0x2F => sum 
+
+
+PAS 1 ligh on 
+
+name	type	start_time	duration	data
+Async Serial	data	0.20295792	0.00098944	0x59
+Async Serial	data	0.204004	0.00098944	0x81
+Async Serial	data	0.20505008	0.00098944	0x00
+Async Serial	data	0.20609632	0.00098944	0x1A
+Async Serial	data	0.2071424	0.00098944	0x00
+Async Serial	data	0.20818848	0.00098944	0x3C
+Async Serial	data	0.20923472	0.00098944	0x30
+
+
+PAS 2 Light On
+name	type	start_time	duration	data
+Async Serial	data	-0.00009808	0.00098944	0x59
+Async Serial	data	0.000948	0.00098944	0x41 => bit 0 = light  bit 7 = PAS 1 bit 6 PAS 2 bit 5 pas 2 ….
+Async Serial	data	0.00199424	0.00098944	0x00
+Async Serial	data	0.00304032	0.00098944	0x1A
+Async Serial	data	0.00408656	0.00098944	0x00
+Async Serial	data	0.00513264	0.00098944	0x3C
+Async Serial	data	0.00617872	0.00098944	0xF0
+
+
+
+name	type	start_time	duration	data
+Async Serial	data	-0.00009808	0.00098944	0x59
+Async Serial	data	0.000948	0.00098944	0x09 = bit 4 = Pas 5  + bit 0 light ON 
+Async Serial	data	0.00199408	0.00098944	0x00
+Async Serial	data	0.00304032	0.00098944	0x1A
+Async Serial	data	0.0040864	0.00098944	0x00
+Async Serial	data	0.00513264	0.00098944	0x3C
+Async Serial	data	0.00617872	0.00098944	0xB8
+Async Serial	data	0.10144944	0.00098944	0x59
+Async Serial	data	0.10249568	0.00098944	0x09
+Async Serial	data	0.10354176	0.00098944	0x00
+Async Serial	data	0.10458784	0.00098944	0x1A
+Async Serial	data	0.10563408	0.00098944	0x00
+Async Serial	data	0.10668016	0.00098944	0x3C
+Async Serial	data	0.10772624	0.00098944	0xB8
+
+=> confirm https://github.com/hurzhurz/tsdz2/blob/master/serial-communication.md#motor-control-flags is corret 
+
+Motor PAS 5 light on  no move no break
+
+name	type	start_time	duration	data
+Async Serial [1]	data	0.01958704	0.00098944	0x43
+Async Serial [1]	data	0.02073904	0.00098944	0x10
+Async Serial [1]	data	0.02189088	0.00098944	0x00
+Async Serial [1]	data	0.02304288	0.00098944	0x5C
+Async Serial [1]	data	0.02419472	0.00098944	0x00
+Async Serial [1]	data	0.02534672	0.00098944	0x00
+Async Serial [1]	data	0.0264984	0.00098944	0x07
+Async Serial [1]	data	0.0276504	0.00098944	0x07
+Async Serial [1]	data	0.02880224	0.00098944	0xBD
+
+Motor PAS 5 light on  no move + break
+name	type	start_time	duration	data
+Async Serial [1]	data	0.01043024	0.00098944	0x43
+Async Serial [1]	data	0.01158272	0.00098944	0x10
+Async Serial [1]	data	0.01273504	0.00098944	0x00
+Async Serial [1]	data	0.01388736	0.00098944	0x5C
+Async Serial [1]	data	0.01503952	0.00098944	0x00
+Async Serial [1]	data	0.01619168	0.00098944	0x00
+Async Serial [1]	data	0.01734384	0.00098944	0x07
+Async Serial [1]	data	0.01849584	0.00098944	0x07
+Async Serial [1]	data	0.01964784	0.00098944	0xBD
+
+
