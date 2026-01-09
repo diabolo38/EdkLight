@@ -57,6 +57,14 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+void DbgIO(int set){
+	if( set ==0 || set ==1 )
+		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, set);
+	else
+		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+}
 int LightOn=0;
 struct UartRcv_t {
 	char RxByte; // recv byte
@@ -66,7 +74,7 @@ struct UartRcv_t {
 	char HdrByte; // first byte expected value
 
 	int RxBufSz;
-	char *RxBuf; //
+	char RxBuf[16]; //
 
 	int nErr;
 	volatile int TimedOut;
@@ -96,7 +104,7 @@ uint32_t SumSerie(uint8_t *Data, int n){
 int RxValidate(struct UartRcv_t *Rx) {
 	uint32_t sum;
 	if (Rx->RxBuf[0] == Rx->HdrByte ) {
-		sum = SumSerie((uint8_t*) Rx->RxBufSz, Rx->RxMax);
+		sum = SumSerie((uint8_t*) Rx->RxBuf, Rx->RxMax);
 		if ( (sum & 0xFF) == Rx->RxBuf[Rx->RxMax - 1]) {
 			return 0;//ok packet is valid
 		}
@@ -105,7 +113,7 @@ int RxValidate(struct UartRcv_t *Rx) {
 }
 
 void  EdkProcess(struct UartRcv_t *Rx){
-	if( RxValidate(Rx) ){
+	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
 		LightOn =Rx->RxBuf[1]&0x01; // bit 1 of control motot flasg
 	}else {
@@ -114,14 +122,11 @@ void  EdkProcess(struct UartRcv_t *Rx){
 	}
 }
 
-char Rx1Buf[16];
-char Rx2Buf[32];
 
 struct UartRcv_t   EdkRx = {
 		.RxMax = 7, // edk sent 7 byte per packet
 		.HdrByte = 0x59,
-		.RxBuf = Rx1Buf,
-		.RxBufSz = sizeof(Rx1Buf),
+		.RxBufSz = sizeof(EdkRx.RxBuf),
 		.huart = &huart1, //     PA10     ------> USART1_RX
 		.htim = &htim2,
 		.Process = EdkProcess,
@@ -129,8 +134,7 @@ struct UartRcv_t   EdkRx = {
 struct UartRcv_t   MotRx = {
 		.RxMax = 8, // tsdz sent 8 byte per packet
 		.HdrByte = 0x43,
-		.RxBuf = Rx2Buf,
-		.RxBufSz = sizeof(Rx2Buf),
+		.RxBufSz = sizeof(MotRx.RxBuf),
 		.huart = &huart2,
 		// PA3     ------> USART2_RX
 	    // PA2     ------> USART2_TX
@@ -145,8 +149,10 @@ void KickRx(struct UartRcv_t *Rx){
 
 void Rcv_ReamTimeOut(struct UartRcv_t *Rx){
 	Rx->htim->Instance->CNT=0;
+	__HAL_TIM_CLEAR_FLAG(Rx->htim, TIM_FLAG_UPDATE);
 	__HAL_TIM_ENABLE_IT(Rx->htim, TIM_IT_UPDATE);
 	__HAL_TIM_ENABLE(Rx->htim);
+	DbgIO(-1);
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
@@ -177,9 +183,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	struct UartRcv_t  *Rx = htim == EdkRx.htim ? &EdkRx : &MotRx;
-	Rx->TimedOut = 1;
+	__HAL_TIM_DISABLE_IT(Rx->htim, TIM_IT_UPDATE);
 	__HAL_TIM_DISABLE(htim);
+	DbgIO(-1);
 	htim->Instance->CNT = 0 ;
+	Rx->TimedOut = 1;
 }
 /**
  * reset reception
@@ -188,7 +196,7 @@ void RxReset( struct UartRcv_t  *Rx){
 	 Rx->nRx = 0 ;
 	 Rx->TimedOut = 0;
 }
-char DbgTx[16]={};
+char DbgTx[16]={0x01, 0x02};
 
 void DoDbgTx(int *Cnt){
 	if( Cnt && MotRx.huart->gState ==  HAL_UART_STATE_READY ){
@@ -209,7 +217,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	  struct UartRcv_t  *Rx;
 	  int i;
-	  volatile int DbgTxCnt;
+	  volatile int DbgTxCnt=0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -283,7 +291,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -293,7 +303,7 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
