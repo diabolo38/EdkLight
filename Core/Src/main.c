@@ -76,14 +76,14 @@ struct UartRcv_t {
 	void  (*Process)(struct UartRcv_t *Rx); //call when burst data received
 };
 
-// led set ticking in idle with low/high lev state  fm light status => don' give info on live rx+f/w status
+// led set ticking in idle with low/high leelv state  fm light status => don' give info on live rx+f/w status
 // Led set by process and then  toggle once by idle after short time is better
 //   led blink until rx is ok ,if not bug f/W stuck ?
-//   "static" led level high/low is the light snifed level
-int LedTogleTick=6; // 1/10 of edk repeat period
+//   "static" led level high/low is the light sniffed level
+int LedTogleTick=3 // 1/33 of edk repeat period
 uint32_t LedSetTick; //we may use last rx good too
 int ToggleLed=0;
-int LightOn=0; // set by process to snifed light  value
+int LightOn=0; // set by process to sniffed light  value
 
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
@@ -111,7 +111,7 @@ uint32_t SumSerie(uint8_t *Data, int n){
 int RxValidate(struct UartRcv_t *Rx) {
 	uint32_t sum;
 	if (Rx->RxBuf[0] == Rx->HdrByte ) {
-		sum = SumSerie((uint8_t*) Rx->RxBuf, Rx->RxMax);
+		sum = SumSerie((uint8_t*) Rx->RxBuf, Rx->RxMax-1);
 		if ( (sum & 0xFF) == Rx->RxBuf[Rx->RxMax - 1]) {
 			return 0;//ok packet is valid
 		}
@@ -207,10 +207,27 @@ void RxReset( struct UartRcv_t  *Rx){
 	 Rx->TimedOut = 0;
 }
 
-// EDK sent PAS 1 light off
-uint8_t Pas1_Ligh0[] ={ 0x59, 0x80, 0x00, 0x1A, 0x00, 0x3C, 0x2F };
-uint8_t Pas2_Ligh1[] ={ 0x59, 0x41, 0x00, 0x1A, 0x00, 0x3C, 0xF0 };
-uint8_t *DbgTx= Pas1_Ligh0; //set during debug session  to one  above array or data to send ptr
+
+
+void LedCheck(){
+	if( ToggleLed  ){
+		if( HAL_GetTick() - LedSetTick > LedTogleTick ){
+			ToggleLed=0;
+			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+		}
+	}
+}
+
+void SetLight(){
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
+	LedSetTick= HAL_GetTick();
+	ToggleLed=-1;
+}
+
+// test sequence
+static uint8_t Pas1_Ligh0[] ={ 0x59, 0x80, 0x00, 0x1A, 0x00, 0x3C, 0x2F }; //EDK sent PAS 1 light off
+static uint8_t Pas2_Ligh1[] ={ 0x59, 0x41, 0x00, 0x1A, 0x00, 0x3C, 0xF0 }; //EDK sent PAS 12 light on
+uint8_t *DbgTx= Pas2_Ligh1; //change during debug session  to one  above array or data to send ptr
 
 /**
  * send actual DbgTx data array on Mot Tx (ext wired to Edk Rx ofr debu)
@@ -221,19 +238,6 @@ void DoDbgTx(int *Cnt){
 		HAL_UART_Transmit_DMA(MotRx.huart, DbgTx,*Cnt);
 		*Cnt= 0;
 	}
-}
-
-void LedCheck(){
-	if( ToggleLed  ){
-		if( HAL_GetTick() - LedSetTick > LedTogleTick ){
-			ToggleLed=0;
-		}
-	}
-}
-
-void SetLight(){
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, !LightOn);
-	LedSetTick= HAL_GetTick();
 }
 
 /**
@@ -247,6 +251,8 @@ int main(void)
 	  struct UartRcv_t  *Rx;
 	  int i;
 	  volatile int DbgTxCnt=0;
+	  volatile int RepDbg=0;
+	  int TickNext=0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -262,7 +268,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  DbgTx= RepDbg ? Pas2_Ligh1 : Pas1_Ligh0; //Trick to avoid  data removed at link cos unused
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -294,9 +300,13 @@ int main(void)
 			 }
 		 }
 	  }
-	  if( DbgTxCnt ){
-		 // DbgTxCnt
-		  DoDbgTx((void*)&DbgTxCnt);
+	  if( DbgTxCnt || RepDbg ){
+		  if( RepDbg && HAL_GetTick() > TickNext ) {
+			  DbgTxCnt=7;
+			  RepDbg--;
+			  TickNext = HAL_GetTick()+ 66; //66  ms 15Hz as lcd rate
+			  DoDbgTx((void*)&DbgTxCnt);
+		  }
 	  }
 	  LedCheck();
     /* USER CODE END WHILE */
