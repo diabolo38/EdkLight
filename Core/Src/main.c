@@ -52,20 +52,11 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void SetLight();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
-void DbgIO(int set){
-	if( set ==0 || set ==1 )
-		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, set);
-	else
-		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-}
-int LightOn=0;
 struct UartRcv_t {
 	char RxByte; // recv byte
 	volatile uint8_t nRx;   // Data cnt in Rx Buf
@@ -83,8 +74,24 @@ struct UartRcv_t {
 	UART_HandleTypeDef *huart;
 	TIM_HandleTypeDef  *htim;
 	void  (*Process)(struct UartRcv_t *Rx); //call when burst data received
-
 };
+
+// led set ticking in idle with low/high lev state  fm light status => don' give info on live rx+f/w status
+// Led set by process and then  toggle once by idle after short time is better
+//   led blink until rx is ok ,if not bug f/W stuck ?
+//   "static" led level high/low is the light snifed level
+int LedTogleTick=6; // 1/10 of edk repeat period
+uint32_t LedSetTick; //we may use last rx good too
+int ToggleLed=0;
+int LightOn=0; // set by process to snifed light  value
+
+void DbgIO(int set){
+	if( set ==0 || set ==1 )
+		HAL_GPIO_WritePin(DBG_IO_GPIO_Port, DBG_IO_Pin, set);
+	else
+		HAL_GPIO_TogglePin(DBG_IO_GPIO_Port, DBG_IO_Pin);
+}
+
 
 uint32_t SumSerie(uint8_t *Data, int n){
 	uint32_t sum;
@@ -112,22 +119,25 @@ int RxValidate(struct UartRcv_t *Rx) {
 	return -1;
 }
 
+
 void  EdkProcess(struct UartRcv_t *Rx){
 	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
 		LightOn =Rx->RxBuf[1]&0x01; // bit 1 of control motot flasg
+		SetLight();
 	}else {
 		// shit rx 1 byte ?
 		Rx->BadRx++;
 	}
 }
 
-
 struct UartRcv_t   EdkRx = {
 		.RxMax = 7, // edk sent 7 byte per packet
 		.HdrByte = 0x59,
 		.RxBufSz = sizeof(EdkRx.RxBuf),
-		.huart = &huart1, //     PA10     ------> USART1_RX
+		.huart = &huart1,
+		// PA10     ------> USART1_RX
+		// PA9     ------> USART1_TX
 		.htim = &htim2,
 		.Process = EdkProcess,
 };
@@ -166,8 +176,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	}
 	HAL_UART_Receive_IT(Rx->huart, (void*)&Rx->RxByte,1);
 
-	if( Rx->nRx < Rx->RxMax ) // when full packet rcv no need to use iddle time for eod of burst reset
-		Rcv_ReamTimeOut(Rx);
+	if( Rx->nRx < Rx->RxMax ) // when full packet received no need to use idle time for end of burst detection
+		Rcv_ReamTimeOut(Rx);  // save cpu time and minimize race timer isr/idle rx check
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
@@ -196,16 +206,35 @@ void RxReset( struct UartRcv_t  *Rx){
 	 Rx->nRx = 0 ;
 	 Rx->TimedOut = 0;
 }
-char DbgTx[16]={0x01, 0x02};
 
+// EDK sent PAS 1 light off
+uint8_t Pas1_Ligh0[] ={ 0x59, 0x80, 0x00, 0x1A, 0x00, 0x3C, 0x2F };
+uint8_t Pas2_Ligh1[] ={ 0x59, 0x41, 0x00, 0x1A, 0x00, 0x3C, 0xF0 };
+uint8_t *DbgTx= Pas1_Ligh0; //set during debug session  to one  above array or data to send ptr
+
+/**
+ * send actual DbgTx data array on Mot Tx (ext wired to Edk Rx ofr debu)
+ * @param Cnt [in/out] byte count to send ,  cleared at output
+ */
 void DoDbgTx(int *Cnt){
 	if( Cnt && MotRx.huart->gState ==  HAL_UART_STATE_READY ){
-		HAL_UART_Transmit_DMA(MotRx.huart, (void*)DbgTx,*Cnt);
+		HAL_UART_Transmit_DMA(MotRx.huart, DbgTx,*Cnt);
 		*Cnt= 0;
 	}
-
 }
-/* USER CODE END 0 */
+
+void LedCheck(){
+	if( ToggleLed  ){
+		if( HAL_GetTick() - LedSetTick > LedTogleTick ){
+			ToggleLed=0;
+		}
+	}
+}
+
+void SetLight(){
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, !LightOn);
+	LedSetTick= HAL_GetTick();
+}
 
 /**
   * @brief  The application entry point.
@@ -269,6 +298,7 @@ int main(void)
 		 // DbgTxCnt
 		  DoDbgTx((void*)&DbgTxCnt);
 	  }
+	  LedCheck();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
