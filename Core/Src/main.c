@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,6 +54,7 @@
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void SetLight();
+void MotDbg( char *str);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -148,6 +150,56 @@ void ITM_Print(int port, const char *p)
         }
     }
 }
+
+void configure_tracing()
+{
+    /* STM32 specific configuration to enable the TRACESWO IO pin */
+    RCC->APB2ENR |= RCC_APB2ENR_AFIOEN;
+    AFIO->MAPR |= (2 << 24); // Disable JTAG to release TRACESWO
+    DBGMCU->CR |= DBGMCU_CR_TRACE_IOEN; // Enable IO trace pins
+
+    if (!(DBGMCU->CR & DBGMCU_CR_TRACE_IOEN))
+    {
+        // Some (all?) STM32s don't allow writes to DBGMCU register until
+        // C_DEBUGEN in CoreDebug->DHCSR is set. This cannot be set by the
+        // CPU itself, so in practice you need to connect to the CPU with
+        // a debugger once before resetting it.
+        return;
+    }
+
+    /* Configure Trace Port Interface Unit */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; // Enable access to registers
+    TPI->ACPR = 0; // Trace clock = HCLK/(x+1) = 8MHz = UART 's baudrate
+                   // The HCLK of F105 is 8MHz so x is 0, and the F103 is 72MHz so x is 8
+    TPI->SPPR = 2; // Pin protocol = NRZ/USART
+    TPI->FFCR = 0x102; // TPIU packet framing enabled when bit 2 is set.
+                       // You can use 0x100 if you only need DWT/ITM and not ETM.
+
+    /* Configure PC sampling and exception trace  */
+    DWT->CTRL = (1 << DWT_CTRL_CYCTAP_Pos) // Prescaler for PC sampling
+                                           // 0 = x64, 1 = x1024
+              | (0 << DWT_CTRL_POSTPRESET_Pos) // Postscaler for PC sampling
+                                                // Divider = value + 1
+              | (1 << DWT_CTRL_PCSAMPLENA_Pos) // Enable PC sampling
+              | (2 << DWT_CTRL_SYNCTAP_Pos)    // Sync packet interval
+                                               // 0 = Off, 1 = Every 2^23 cycles,
+                                               // 2 = Every 2^25, 3 = Every 2^27
+              | (1 << DWT_CTRL_EXCTRCENA_Pos)  // Enable exception trace
+              | (1 << DWT_CTRL_CYCCNTENA_Pos); // Enable cycle counter
+
+    /* Configure instrumentation trace macroblock */
+    ITM->LAR = 0xC5ACCE55;
+    ITM->TCR = (1 << ITM_TCR_TraceBusID_Pos) // Trace bus ID for TPIU
+             | (1 << ITM_TCR_DWTENA_Pos) // Enable events from DWT
+             | (1 << ITM_TCR_SYNCENA_Pos) // Enable sync packets
+             | (1 << ITM_TCR_ITMENA_Pos); // Main enable for ITM
+    ITM->TER = 0xFFFFFFFF; // Enable all stimulus ports
+
+    /* Configure embedded trace macroblock */
+
+}
+
+
 void  MotProcess(struct UartRcv_t *Rx){
 	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
@@ -161,7 +213,9 @@ void  MotProcess(struct UartRcv_t *Rx){
 		//once every sec trace
 		if( MotRcvCnt++ > 15){
 			sprintf(MotInfo,"St %02X S %d C %d",MotStatus, MotSpd, MotTorque );
-			ITM_Print(0, MotInfo);
+			MotDbg(MotInfo);
+			//ITM_Print(0, MotInfo);
+			MotRcvCnt=0;
 		}
 	}else {
 		// shit rx 1 byte ?
@@ -278,7 +332,15 @@ void DoDbgTx(int *Cnt){
 		*Cnt= 0;
 	}
 }
-/* USER CODE END 0*/
+
+void MotDbg( char *str){
+	int n;
+	if ( EdkRx.huart->gState ==  HAL_UART_STATE_READY ){
+		n=strlen(str);
+		HAL_UART_Transmit_DMA(EdkRx.huart, (void*)str, n);
+	}
+}
+/* USER CODE END 0 */
 
 /**
   * @brief  The application entry point.
@@ -293,6 +355,7 @@ int main(void)
 	  volatile int DbgTxCnt=0;
 	  volatile int RepDbg=0;
 	  int TickNext=0;
+	  volatile int trace_en=0; /// for dynamaic when dbg attach to enable trace
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -319,6 +382,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+  configure_tracing();
   KickRx(&EdkRx);
   KickRx(&MotRx);
   /* USER CODE END 2 */
@@ -350,6 +414,10 @@ int main(void)
 		  }
 	  }
 	  LedCheck();
+	  if( trace_en){
+		  configure_tracing();
+		  trace_en = 0;
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
