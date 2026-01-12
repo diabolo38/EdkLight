@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -80,7 +80,7 @@ struct UartRcv_t {
 // Led set by process and then  toggle once by idle after short time is better
 //   led blink until rx is ok ,if not bug f/W stuck ?
 //   "static" led level high/low is the light sniffed level
-int LedTogleTick=3 // 1/33 of edk repeat period
+int LedTogleTick=3; // 1/33 of edk repeat period
 uint32_t LedSetTick; //we may use last rx good too
 int ToggleLed=0;
 int LightOn=0; // set by process to sniffed light  value
@@ -131,6 +131,44 @@ void  EdkProcess(struct UartRcv_t *Rx){
 	}
 }
 
+int MotRcvCnt=0;
+char MotInfo[64];
+int MotSpd;
+int MotTorque;
+uint8_t MotStatus;
+//from https://github.com/PetteriAimonen/STM32_Trace_Example/blob/master/trace_example.c
+void ITM_Print(int port, const char *p)
+{
+    if ((ITM->TCR & ITM_TCR_ITMENA_Msk) && (ITM->TER & (1UL << port)))
+    {
+        while (*p)
+        {
+            while (ITM->PORT[port].u32 == 0);
+            ITM->PORT[port].u8 = *p++;
+        }
+    }
+}
+void  MotProcess(struct UartRcv_t *Rx){
+	if( RxValidate(Rx)==0 ){
+		Rx->LastRcvGood = HAL_GetTick();
+
+		MotStatus=Rx->RxBuf[2];
+		if(Rx->RxBuf[4]> Rx->RxBuf[3])
+			MotTorque=Rx->RxBuf[4]-Rx->RxBuf[3]; //only if 4 > 3 or motot on else vive negative number or status say mot on
+		else
+			MotTorque=0;
+		MotSpd=Rx->RxBuf[7]+((uint32_t)Rx->RxBuf[7]<<8); // max 0x0707 / 1799 when stoped of very slow
+		//once every sec trace
+		if( MotRcvCnt++ > 15){
+			sprintf(MotInfo,"St %02X S %d C %d",MotStatus, MotSpd, MotTorque );
+			ITM_Print(0, MotInfo);
+		}
+	}else {
+		// shit rx 1 byte ?
+		Rx->BadRx++;
+	}
+}
+
 struct UartRcv_t   EdkRx = {
 		.RxMax = 7, // edk sent 7 byte per packet
 		.HdrByte = 0x59,
@@ -142,13 +180,14 @@ struct UartRcv_t   EdkRx = {
 		.Process = EdkProcess,
 };
 struct UartRcv_t   MotRx = {
-		.RxMax = 8, // tsdz sent 8 byte per packet
+		.RxMax = 9, // tsdz sent 8 byte per packet
 		.HdrByte = 0x43,
 		.RxBufSz = sizeof(MotRx.RxBuf),
 		.huart = &huart2,
 		// PA3     ------> USART2_RX
 	    // PA2     ------> USART2_TX
 		.htim = &htim3,
+		.Process = MotProcess,
 };
 
 void KickRx(struct UartRcv_t *Rx){
@@ -239,6 +278,7 @@ void DoDbgTx(int *Cnt){
 		*Cnt= 0;
 	}
 }
+/* USER CODE END 0*/
 
 /**
   * @brief  The application entry point.
@@ -280,6 +320,7 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   KickRx(&EdkRx);
+  KickRx(&MotRx);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -287,7 +328,7 @@ int main(void)
   while (1)
   {
   	  //Check for 2 Rx time out ou Rx liit
-	  for( i=0; i<1; i ++ ) { //dbgg only run the displauy rx
+	  for( i=0; i<2; i ++ ) { //dbgg only run the displauy rx
 		 Rx = i==0 ? &EdkRx : &MotRx;
 
 		 if ( Rx->nRx >=  Rx->RxMax ){

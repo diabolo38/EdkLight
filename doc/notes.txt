@@ -1,6 +1,8 @@
 
 connector 
 ========
+Lcd/Motor
+--------
  Higo/Julet 5 pin M8 female , confirmed color as per my connector cable 
              (top Notch)
                    U     
@@ -8,6 +10,17 @@ connector
 Tx(RxLCD)/Blue  +    +  Rx(Tx lcd)/ Yellow
                   +
                  V+/Black (Bottom centered pin)
+
+Ligth
+------
+https://fr.aliexpress.com/item/1005007666998243.html?spm=a2g0o.order_list.order_list_main.35.19855e5bxBbLOi&gatewayAdapt=glo2fra#nav-specification
+
+common ebike 36-80V mo,o lep with big front len
+ 
+3 lignes 
+  rouge: ligne de corne / horn
+  vert: ligne de lumière/ light
+  noir: ligne commune  GND 
 
 Timers
 -------- 
