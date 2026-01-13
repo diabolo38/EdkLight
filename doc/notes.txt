@@ -32,9 +32,17 @@ Timers
 
 Power
 ------
-LiPo 13s 54.6V max, 48.1V nomimal
+EBike bat LiPo 13s 54.6V max, 48.1V nomimal 
+
+5V Voltage regulator
+-----------------
+7-100V to 5V dc dc https://fr.aliexpress.com/item/1005005978350087.html?productId=1005005978350087&selectedSkuId=12000035144552758&channel=detailPageDealCombineFloor&combineBizType=platformFreeShipping&intent_extra_sku_from=from_add_to_shopcart&type=mergeorder&pdp_npi=4%40dis%21EUR%211.75%21%21%21%211.99%21%21%40211b6c1717682890688017492e8f9f%2112000035144552758%21fus%21FR%211793462021%21X&trackParams=%7B%22businessScenario%22%3A%22choiceV2%22%2C%22activityType%22%3A%22CHOICE_FREE_SHIPPING%22%7D&spm=a2g0o.detail.fusionpage.0&gatewayAdapt=glo2fra
+
+Light control
+--------------
 IRFZ44N     vds max 55V  :( dangereous 
 stp60nf06   vds max 60V  still close 10% margin vs max volt
+
 
 RX uart
 ======
@@ -55,7 +63,7 @@ when timer end we can reset rx burst and stop timer until first of next burst
 
 Acquired serial sequence on bike 
 ---------------------------------
-Reverse confirmed information on spec+web but di not find any direct "brake active" report usable to implemant read light control 
+Reverse confirmed information on spec+web but dit not find any direct "brake active" report usable to implemant read light control 
 
 EDK sent PAS 1 light off 
 name	type	start_time	duration	data
