@@ -1,7 +1,20 @@
 
+ressource 
+==========
+wireless controler project for tsdz2 https://opensourceebike.github.io/easy_diy_display_ebike_display/tsdz2_wireless/ebike_wireless_controller.html 
+schematic , cable pinout etc ....
+
 connector 
 ========
-Lcd/Motor
+Motor 4 to 1 source 
+-------------------
+higo 8 Pin (numbering from /ebike_wireless_controller) RX TX in motor sense 
+    Brown/TX  8         2  Blue/Vbat
+ Org/throt  7   1(GND)    3 Red/Vin(key)
+Green/Brake   6         4 Yellow/RX
+		           5 White/5V
+		  color /pinout to be verified    
+Lcd/Motor 1 to 4 
 --------
  Higo/Julet 5 pin M8 female , confirmed color as per my connector cable 
              (top Notch)
@@ -15,12 +28,17 @@ Ligth
 ------
 https://fr.aliexpress.com/item/1005007666998243.html?spm=a2g0o.order_list.order_list_main.35.19855e5bxBbLOi&gatewayAdapt=glo2fra#nav-specification
 
-common ebike 36-80V mo,o lep with big front len
+common ebike 36-80V led lamp with big front len
  
 3 lignes 
   rouge: ligne de corne / horn
   vert: ligne de lumière/ light
   noir: ligne commune  GND 
+
+mcu
+=====
+For dev proto the stm32f103 black pill low cost c6 or 8 (10K/20K sram)   https://stm32world.com/wiki/Black_Pill easier to wire 
+The mini f103  10x2 he10 may be better for final as more compact pcb.
 
 Timers
 -------- 
@@ -37,12 +55,16 @@ EBike bat LiPo 13s 54.6V max, 48.1V nomimal
 5V Voltage regulator
 -----------------
 7-100V to 5V dc dc https://fr.aliexpress.com/item/1005005978350087.html?productId=1005005978350087&selectedSkuId=12000035144552758&channel=detailPageDealCombineFloor&combineBizType=platformFreeShipping&intent_extra_sku_from=from_add_to_shopcart&type=mergeorder&pdp_npi=4%40dis%21EUR%211.75%21%21%21%211.99%21%21%40211b6c1717682890688017492e8f9f%2112000035144552758%21fus%21FR%211793462021%21X&trackParams=%7B%22businessScenario%22%3A%22choiceV2%22%2C%22activityType%22%3A%22CHOICE_FREE_SHIPPING%22%7D&spm=a2g0o.detail.fusionpage.0&gatewayAdapt=glo2fra
+may be usless if confimed a 5V on the 8 pin higo from wich we can take few 10mA 
 
 Light control
 --------------
 IRFZ44N     vds max 55V  :( dangereous 
 stp60nf06   vds max 60V  still close 10% margin vs max volt
 
+smaller footprint I Max  ~ 1 to 2 Amp , Rdson ~0.1 ohm 
+NTF2955   PMos sot 233 with 60V max but /!\ VGS max 20V 
+NCE6005AR NMOS sot233  60V max 
 
 RX uart
 ======

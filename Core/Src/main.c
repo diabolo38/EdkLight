@@ -59,6 +59,8 @@ void MotDbg( char *str);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define SOFT_TIMEOUT	3 // ifdef use rx end of  message by soft time  time out else h/w timer used
+//the 3  define the  time out in tick so between 2 and 3  ms given  1 ms error  on start and check
 struct UartRcv_t {
 	char RxByte; // recv byte
 	volatile uint8_t nRx;   // Data cnt in Rx Buf
@@ -71,7 +73,8 @@ struct UartRcv_t {
 
 	int nErr;
 	volatile int TimedOut;
-	uint32_t LastRcvGood; // tick last good rx occured
+	uint32_t LastRcvGood; // tick last full msg received
+	uint32_t LastRxTick; // last char received tick for soft time out handling
 	uint32_t BadRx;
 	UART_HandleTypeDef *huart;
 	TIM_HandleTypeDef  *htim;
@@ -85,8 +88,9 @@ struct UartRcv_t {
 int LedTogleTick=3; // 1/33 of edk repeat period
 uint32_t LedSetTick; //we may use last rx good too
 int ToggleLed=0;
+volatile int light_upd; // set when reception done and light value updated
 int LightOn=0; // set by process to sniffed light  value
-
+int LightOn_p=1; // set by process to sniffed light  value
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
 		HAL_GPIO_WritePin(DBG_IO_GPIO_Port, DBG_IO_Pin, set);
@@ -126,7 +130,7 @@ void  EdkProcess(struct UartRcv_t *Rx){
 	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
 		LightOn =Rx->RxBuf[1]&0x01; // bit 1 of control motot flasg
-		SetLight();
+		light_upd=1;
 	}else {
 		// shit rx 1 byte ?
 		Rx->BadRx++;
@@ -246,16 +250,24 @@ struct UartRcv_t   MotRx = {
 
 void KickRx(struct UartRcv_t *Rx){
 	Rx->nRx=0;
+#ifdef SOFT_TIMEOUT
+	Rx->LastRxTick= HAL_GetTick();
+#else
 	__HAL_TIM_DISABLE(Rx->htim);
+#endif
 	HAL_UART_Receive_IT(Rx->huart, (void*)Rx->RxBuf,1);
 }
 
 void Rcv_ReamTimeOut(struct UartRcv_t *Rx){
+#ifdef SOFT_TIMEOUT
+	Rx->LastRxTick = HAL_GetTick();
+#else
 	Rx->htim->Instance->CNT=0;
 	__HAL_TIM_CLEAR_FLAG(Rx->htim, TIM_FLAG_UPDATE);
 	__HAL_TIM_ENABLE_IT(Rx->htim, TIM_IT_UPDATE);
 	__HAL_TIM_ENABLE(Rx->htim);
 	DbgIO(-1);
+#endif
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
@@ -298,6 +310,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 void RxReset( struct UartRcv_t  *Rx){
 	 Rx->nRx = 0 ;
 	 Rx->TimedOut = 0;
+#ifdef SOFT_TIMEOUT
+	 Rx->LastRxTick = HAL_GetTick();
+#endif
 }
 
 
@@ -315,6 +330,10 @@ void SetLight(){
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
 	LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
+	if( LightOn != LightOn_p ){
+		LightOn_p = LightOn;
+		htim1.Instance->CCR1 = LightOn ? 1024 : 0; //1024 1 pulse low all over hight 1025 (arr+1) for full on
+	}
 }
 
 // test sequence
@@ -356,6 +375,7 @@ int main(void)
 	  volatile int RepDbg=0;
 	  int TickNext=0;
 	  volatile int trace_en=0; /// for dynamaic when dbg attach to enable trace
+	  volatile int trace_test=0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -381,10 +401,14 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   configure_tracing();
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  SetLight(); // init prev
   KickRx(&EdkRx);
   KickRx(&MotRx);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -400,6 +424,9 @@ int main(void)
 					Rx->Process(Rx);
 			 RxReset(Rx);
 		 }else {
+#ifdef SOFT_TIMEOUT
+			 Rx->TimedOut = HAL_GetTick()  - Rx->LastRxTick > SOFT_TIMEOUT;
+#endif
 			 if( Rx->TimedOut && Rx->nRx < Rx->RxMax ){ // repeat check minimize unlikely race effect
 				 RxReset(Rx);
 			 }
@@ -414,9 +441,18 @@ int main(void)
 		  }
 	  }
 	  LedCheck();
+	  if( light_upd){
+		  SetLight();
+		  light_upd=0;
+	  }
 	  if( trace_en){
 		  configure_tracing();
 		  trace_en = 0;
+	  }
+	  if( trace_test){
+		  sprintf(MotInfo, "Test %d", (int)HAL_GetTick());
+		  ITM_Print(0,MotInfo);
+		  trace_test=0;
 	  }
     /* USER CODE END WHILE */
 
