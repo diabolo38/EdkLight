@@ -85,6 +85,12 @@ Rx idlle time out of 2ms shall be good eought , we rese cnt on  each byte rcv
 when timer end we can reset rx burst and stop timer until first of next burst 
 => best 2.5 to 3 byte idle tome aka 2.5 >3 ms 
 
+PCB
+==========
+
+Blacpill pinout is wrong it's the f401 clsoe to bleu plill version not the f103 black pcb 
+N/P mos used different  ref with same  SOT223 pinout
+
 Acquired serial sequence on bike 
 ---------------------------------
 Reverse confirmed information on spec+web but dit not find any direct "brake active" report usable to implemant read light control 
