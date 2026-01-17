@@ -29,6 +29,7 @@ Ligth
 https://fr.aliexpress.com/item/1005007666998243.html?spm=a2g0o.order_list.order_list_main.35.19855e5bxBbLOi&gatewayAdapt=glo2fra#nav-specification
 
 common ebike 36-80V led lamp with big front len
+Max Powzer ~2.5W (50mA @ 54V)
  
 3 lignes 
   rouge: ligne de corne / horn
@@ -63,8 +64,9 @@ IRFZ44N     vds max 55V  :( dangereous
 stp60nf06   vds max 60V  still close 10% margin vs max volt
 
 smaller footprint I Max  ~ 1 to 2 Amp , Rdson ~0.1 ohm 
-NTF2955   PMos sot 233 with 60V max but /!\ VGS max 20V 
+NTF2955   PMos sot 233 with 60V max but /!\ VGS max 20V => high side driving of light/horn 
 NCE6005AR NMOS sot233  60V max 
+BTS4140N 60V PMos sot223 hi side smart wicth with self protection  but rdson 1ohm :/
 
 RX uart
 ======

@@ -85,12 +85,16 @@ struct UartRcv_t {
 // Led set by process and then  toggle once by idle after short time is better
 //   led blink until rx is ok ,if not bug f/W stuck ?
 //   "static" led level high/low is the light sniffed level
-int LedTogleTick=3; // 1/33 of edk repeat period
+int LedTogleTick=5; // 1/33 of edk repeat period
 uint32_t LedSetTick; //we may use last rx good too
 int ToggleLed=0;
-volatile int light_upd; // set when reception done and light value updated
+volatile int light_upd; // set when reception done active light value updated (reset once done)
 int LightOn=0; // set by process to sniffed light  value
 int LightOn_p=1; // set by process to sniffed light  value
+volatile int OnLvl=512;
+int OnLvl_p=0;
+
+
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
 		HAL_GPIO_WritePin(DBG_IO_GPIO_Port, DBG_IO_Pin, set);
@@ -330,9 +334,10 @@ void SetLight(){
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
 	LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
-	if( LightOn != LightOn_p ){
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ){
 		LightOn_p = LightOn;
-		htim1.Instance->CCR1 = LightOn ? 1024 : 0; //1024 1 pulse low all over hight 1025 (arr+1) for full on
+		OnLvl_p = OnLvl;
+		htim1.Instance->CCR1 = LightOn ? OnLvl : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
 	}
 }
 
