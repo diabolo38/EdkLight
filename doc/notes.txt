@@ -38,8 +38,11 @@ Max Powzer ~2.5W (50mA @ 54V)
 
 mcu
 =====
-For dev proto the stm32f103 black pill low cost c6 or 8 (10K/20K sram)   https://stm32world.com/wiki/Black_Pill easier to wire 
-The mini f103  10x2 he10 may be better for final as more compact pcb.
+For dev proto the stm32f103 black pill low cost c6 or 8 (10K/20K sram)  
+ https://stm32world.com/wiki/Black_Pill easier to wire 
+ https://stm32-base.org/boards/STM32F103C8T6-Black-Pill.html
+ https://hobbycomponents.com/st-micro-electronics/960-stm32f103-black-pill-development-board
+The mini f103 10x2 he10 x2 more compact pcb aprox 2.54 x 2.54 cm vs 2.4 x 5.8 cm
 
 Timers
 -------- 
@@ -67,6 +70,7 @@ smaller footprint I Max  ~ 1 to 2 Amp , Rdson ~0.1 ohm
 NTF2955   PMos sot 233 with 60V max but /!\ VGS max 20V => high side driving of light/horn 
 NCE6005AR NMOS sot233  60V max 
 BTS4140N 60V PMos sot223 hi side smart wicth with self protection  but rdson 1ohm :/
+ BTS best more compact but power must be  limited (few 100mA 5 to  10W on 48V)
 
 RX uart
 ======
