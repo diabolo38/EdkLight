@@ -236,8 +236,8 @@ struct UartRcv_t   EdkRx = {
 		.HdrByte = 0x59,
 		.RxBufSz = sizeof(EdkRx.RxBuf),
 		.huart = &huart1,
-		// PA10     ------> USART1_RX
-		// PA9     ------> USART1_TX
+		// PA10     ------> USART1_RX alternate PB7 (PA10 usb uart via CH340)
+		// PA9     ------> USART1_TX alternate PB6  (PA9  usb uart via CH340)
 		.htim = &htim2,
 		.Process = EdkProcess,
 };
@@ -364,6 +364,34 @@ void MotDbg( char *str){
 		HAL_UART_Transmit_DMA(EdkRx.huart, (void*)str, n);
 	}
 }
+
+extern uint8_t _eedata_start; /* Symbol defined in the linker script */
+extern uint8_t _eedata_end;
+struct EeData_t {
+	uint8_t EeUSed_Res; //for free/use next management 0 deleted not use anymore 0xFF free any non 0xFF
+	// user data below
+	uint8_t FrontLevel;
+	unsigned RearBlink:1;
+	uint8_t RearPer;
+};
+void ee_check(){
+	uint8_t *pEE = &_eedata_start;
+	while( pEE < &_eedata_end){
+		pEE+=sizeof(struct EeData_t);
+	}
+}
+
+//  state     cond/event -> next {action}; * rep cond act ...
+// rest state = high (pull up ) button short capacitor to gnd
+//  Idle      :   lowEdge -> SHortWait {SetLigh(full) , TimeEdge=now} ;
+//  ShortWait :  HighEdge -> Idle {LightOff, if time fm last short < tdbl -> dbl click ()} ;
+//               TFromEdge > Long  -> LongWait { SetLigh(lvl) }
+// LongWait   :  HighEdge ->Idle { Store new lvl if chg}
+
+// short  from ligh off et on stop on release "short beam warn"
+// short when on => nothing of set lvl max , short off befoe one "high beam warm"
+// long turn on/off as time > no action on release
+// very long  ? => enter  lvl setting level  increase level rotating in aprox  1 sec step and set new lev on release
 /* USER CODE END 0 */
 
 /**
@@ -408,7 +436,8 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  configure_tracing();
+  //configure_tracing();
+  ee_check();
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   SetLight(); // init prev
   KickRx(&EdkRx);
