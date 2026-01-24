@@ -9,11 +9,38 @@ connector
 Motor 4 to 1 source 
 -------------------
 higo 8 Pin (numbering from /ebike_wireless_controller) RX TX in motor sense 
+
     Brown/TX  8         2  Blue/Vbat
  Org/throt  7   1(GND)    3 Red/Vin(key)
 Green/Brake   6         4 Yellow/RX
 		           5 White/5V
-		  color /pinout to be verified    
+		  color /pinout to be verified    GNB=black 
+		  
+ Check on min (female view )
+ 1 black   GNB black ok
+ 
+ 2 blue    VBat
+ 3 red     Vin
+ 4 yellow  Rx  ok
+ 5 white   5V  ok
+ 6 Green   breake 
+ 7 Orang   Throt ok
+ 8 brown   Tx    ok
+  all seamed ok as per number color but maping on function isn't ok 
+		  
+ functionaly it's not inline mine is 
+ 1 Gnd                            
+ 2 ? throt  analog 0 to 3.5V                             
+ 3 ? 4.3V  ? 5V 
+ 4 Rx 
+ 5 brake 
+ 6 TX  
+ 7 orange Vin                          
+ 8 brown VBat                                                         
+  
+
+		  
+		  
 Lcd/Motor 1 to 4 
 --------
  Higo/Julet 5 pin M8 female , confirmed color as per my connector cable 
@@ -26,6 +53,8 @@ Tx(RxLCD)/Blue  +    +  Rx(Tx lcd)/ Yellow
 
 Ligth
 ------
+front
+
 https://fr.aliexpress.com/item/1005007666998243.html?spm=a2g0o.order_list.order_list_main.35.19855e5bxBbLOi&gatewayAdapt=glo2fra#nav-specification
 
 common ebike 36-80V led lamp with big front len
@@ -35,6 +64,13 @@ Max Powzer ~2.5W (50mA @ 54V)
   rouge: ligne de corne / horn
   vert: ligne de lumière/ light
   noir: ligne commune  GND 
+  
+ Rear 36/48V brake(flashing)+tail light 
+   Red    ligh +
+   black  ligh -
+   
+   Green Brake -
+   Yellow Brake +
 
 mcu
 =====
