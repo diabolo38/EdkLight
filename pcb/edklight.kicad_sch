@@ -4134,8 +4134,8 @@
 	)
 	(text_box "TSDZ2B Higo 8 in/out"
 		(exclude_from_sim no)
-		(at 137.795 5.715 0)
-		(size 50.8 18.415)
+		(at 147.955 25.4 0)
+		(size 63.5 34.925)
 		(margins 0.9525 0.9525 0.9525 0.9525)
 		(stroke
 			(width 0)
@@ -4880,16 +4880,6 @@
 	)
 	(wire
 		(pts
-			(xy 229.87 35.56) (xy 233.68 35.56)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "7f5e3bed-1edc-4b8c-a1d5-56e099a675f0")
-	)
-	(wire
-		(pts
 			(xy 218.44 110.49) (xy 218.44 109.22)
 		)
 		(stroke
@@ -5027,16 +5017,6 @@
 			(type default)
 		)
 		(uuid "a578d410-3e33-4a64-84f2-3b2b6d2ffae7")
-	)
-	(wire
-		(pts
-			(xy 231.14 40.64) (xy 233.68 40.64)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "a68790d0-6e15-454c-9e82-5102785cbccf")
 	)
 	(wire
 		(pts

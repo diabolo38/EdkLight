@@ -81,6 +81,11 @@ void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = 512;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -234,10 +239,17 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
 
   /* USER CODE END TIM1_MspPostInit 0 */
 
+    __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOA_CLK_ENABLE();
     /**TIM1 GPIO Configuration
+    PB14     ------> TIM1_CH2N
     PA8     ------> TIM1_CH1
     */
+    GPIO_InitStruct.Pin = GPIO_PIN_14;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
     GPIO_InitStruct.Pin = GPIO_PIN_8;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
