@@ -238,6 +238,8 @@ struct UartRcv_t   EdkRx = {
 		.huart = &huart1,
 		// PA10     ------> USART1_RX alternate PB7 (PA10 usb uart via CH340)
 		// PA9     ------> USART1_TX alternate PB6  (PA9  usb uart via CH340)
+		// Mini103 USART1 PA10/PA9 connect to usb via CH340 we coul yet use it on alt mapping PB7/6  but losing capability to use serial/usb
+		//         has one more usart3 vs F103c6 black/blue pill than can map the edk whille keeping usb on usrt1
 		.htim = &htim2,
 		.Process = EdkProcess,
 };
@@ -512,7 +514,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL4;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
