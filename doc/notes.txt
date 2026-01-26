@@ -72,6 +72,11 @@ Max Powzer ~2.5W (50mA @ 54V)
    Green Brake -
    Yellow Brake +
 
+dual push buttton 
+-------------------
+Yellow 2x light (moded from auto locking to non locking) 
+Blue  2x horn 
+
 mcu
 =====
 For dev proto the stm32f103 black pill low cost c6 or 8 (10K/20K sram)  
