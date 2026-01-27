@@ -102,6 +102,13 @@ void DbgIO(int set){
 		HAL_GPIO_TogglePin(DBG_IO_GPIO_Port, DBG_IO_Pin);
 }
 
+void DbgIO2(int set){
+	if( set ==0 || set ==1 )
+		HAL_GPIO_WritePin(DBG2_GPIO_Port, DBG2_Pin, set);
+	else
+		HAL_GPIO_TogglePin(DBG2_GPIO_Port, DBG2_Pin);
+}
+
 
 uint32_t SumSerie(uint8_t *Data, int n){
 	uint32_t sum;
@@ -396,6 +403,16 @@ void ee_check(){
 // very long  ? => enter  lvl setting level  increase level rotating in aprox  1 sec step and set new lev on release
 /* USER CODE END 0 */
 
+volatile int nExti=0;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	int v;
+	if( GPIO_Pin == BUT_LIGHT_Pin ){
+		v = HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port,BUT_LIGHT_Pin );
+		DbgIO2(v);
+		nExti++;
+	}
+
+}
 /**
   * @brief  The application entry point.
   * @retval int
