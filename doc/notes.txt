@@ -16,7 +16,7 @@ Green/Brake   6         4 Yellow/RX
 		           5 White/5V
 		  color /pinout to be verified    GNB=black 
 		  
- Check on min (female view )
+ Check on mine (female view )
  1 black   GNB black ok
  
  2 blue    VBat
@@ -65,6 +65,14 @@ Max Powzer ~2.5W (50mA @ 54V)
   vert: ligne de lumière/ light
   noir: ligne commune  GND 
   
+  Higo 3 pin cable extender female view front 
+   
+     Green  O   U    O Red  
+          
+                O Black
+          
+
+  
  Rear 36/48V brake(flashing)+tail light 
    Red    ligh +
    black  ligh -
@@ -72,10 +80,24 @@ Max Powzer ~2.5W (50mA @ 54V)
    Green Brake -
    Yellow Brake +
 
+Higo 4  same color but black=blue 
+
+ Red =>  lighjt + Vbat 
+ black/blue = light -  on bot mos
+ Green = brk - on bt mos 
+ Yellow =brk + vbat
+ 
+ 
+
 dual push buttton 
 -------------------
 Yellow 2x light (moded from auto locking to non locking) 
 Blue  2x horn 
+
+higo 4 
+Red+black : light
+white+green : horn 
+
 
 mcu
 =====
@@ -92,6 +114,25 @@ Timers
  # (opt? )  Rear blink time 
    
 /!\ f103 has only 3 timer  + rtc => 4 h/w time source only out of 3 pwm capbale only 
+
+
+UI
+===
+
+Brake : avoid keeping on/blink  , when keep pressed for too long and no move (aka press on red ligh)
+when brake is on 
+	if have speed or brake state chg : reset "keepOnDelay" ,  BrakeOverhide false
+	else (no speed and no chg ) keepOnDelay elapsed check and set BrakeOverhide 
+  	
+
+Light 
+keep short to medium time presse for light on/off  
+  if ligh presse => ligh on 
+      after long press delay => setting mode 
+   if ligh release before medium time => light state toogle (potneital on  
+   if ligh release before long => set on 
+   
+  if displ light change => set the on state whatevr was the push button ligh status  
 
 Power
 ------
