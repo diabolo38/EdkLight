@@ -88,12 +88,12 @@ struct UartRcv_t {
 int LedTogleTick=5; // 1/33 of edk repeat period
 uint32_t LedSetTick; //we may use last rx good too
 int ToggleLed=0;
-volatile int light_upd; // set when reception done active light value updated (reset once done)
+volatile int light_upd; // flags set when reception done to activate  light value updated task (reset once done)
 int LightOn=0; // set by process to sniffed light  value
 int LightOn_p=1; // set by process to sniffed light  value
 volatile int OnLvl=512;
 int OnLvl_p=0;
-
+volatile int BrakeActive=0;
 
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
@@ -140,11 +140,10 @@ int RxValidate(struct UartRcv_t *Rx) {
 void  EdkProcess(struct UartRcv_t *Rx){
 	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
-		LightOn =Rx->RxBuf[1]&0x01; // bit 1 of control motot flasg
+		LightOn =Rx->RxBuf[1]&0x01; // bit 0 of control motor flags
 		light_upd=1;
 	}else {
-		// shit rx 1 byte ?
-		Rx->BadRx++;
+		Rx->BadRx++;// shit rx 1 byte ?
 	}
 }
 
@@ -238,27 +237,40 @@ void  MotProcess(struct UartRcv_t *Rx){
 	}
 }
 
+/**USART1 GPIO Configuration
+   PA9     ------> USART1_TX
+   PA10     ------> USART1_RX to usb
+   */
+
 struct UartRcv_t   EdkRx = {
 		.RxMax = 7, // edk sent 7 byte per packet
 		.HdrByte = 0x59,
 		.RxBufSz = sizeof(EdkRx.RxBuf),
-		.huart = &huart1,
-		// PA10     ------> USART1_RX alternate PB7 (PA10 usb uart via CH340)
-		// PA9     ------> USART1_TX alternate PB6  (PA9  usb uart via CH340)
-		// Mini103 USART1 PA10/PA9 connect to usb via CH340 we coul yet use it on alt mapping PB7/6  but losing capability to use serial/usb
-		//         has one more usart3 vs F103c6 black/blue pill than can map the edk whille keeping usb on usrt1
+		.huart = &huart2,
+		/**USART2 GPIO Configuration
+		PA2     ------> USART2_TX
+		PA3     ------> USART2_RX
+		*/
 		.htim = &htim2,
 		.Process = EdkProcess,
 };
+
 struct UartRcv_t   MotRx = {
-		.RxMax = 9, // tsdz sent 8 byte per packet
+		.RxMax = 9, // tsdz2b sent 8 byte per packet
 		.HdrByte = 0x43,
 		.RxBufSz = sizeof(MotRx.RxBuf),
-		.huart = &huart2,
-		// PA3     ------> USART2_RX
-	    // PA2     ------> USART2_TX
-		.htim = &htim3,
+		.huart = &huart3,
+		/**USART3 GPIO Configuration
+		  PB10     ------> USART3_TX
+		  PB11     ------> USART3_RX
+		  */
 		.Process = MotProcess,
+};
+struct UartRcv_t UsbRx = {
+	.RxMax =  sizeof(UsbRx.RxBuf), // no rela limit
+	.RxBufSz = sizeof(UsbRx.RxBuf),
+	.huart = &huart1,
+	// no process not header
 };
 
 void KickRx(struct UartRcv_t *Rx){
@@ -275,22 +287,25 @@ void Rcv_ReamTimeOut(struct UartRcv_t *Rx){
 #ifdef SOFT_TIMEOUT
 	Rx->LastRxTick = HAL_GetTick();
 #else
-	Rx->htim->Instance->CNT=0;
-	__HAL_TIM_CLEAR_FLAG(Rx->htim, TIM_FLAG_UPDATE);
-	__HAL_TIM_ENABLE_IT(Rx->htim, TIM_IT_UPDATE);
-	__HAL_TIM_ENABLE(Rx->htim);
-	DbgIO(-1);
+	if( RxRx->htim != NULL ){
+		Rx->htim->Instance->CNT=0;
+		__HAL_TIM_CLEAR_FLAG(Rx->htim, TIM_FLAG_UPDATE);
+		__HAL_TIM_ENABLE_IT(Rx->htim, TIM_IT_UPDATE);
+		__HAL_TIM_ENABLE(Rx->htim);
+		DbgIO(-1);
+	}else
+		Rx->LastRxTick = HAL_GetTick();
 #endif
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
-	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : &MotRx;
+	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : huart == MotRx.huart  ? &MotRx : &UsbRx;
 	if(Rx->nRx < Rx->RxBufSz ){
 		Rx->RxBuf[Rx->nRx]=Rx->RxByte;
 		Rx->nRx++;
 	}
 	else {
-		//how idle is dead not picking ?
+		//how can ? idle is dead not picking ?
 	}
 	HAL_UART_Receive_IT(Rx->huart, (void*)&Rx->RxByte,1);
 
@@ -302,12 +317,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
 	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : &MotRx;
 	Rx->nErr++;
 	//Rx->nRx = 0;
-	//We could continue on the end crc +  timeout with not enough data  will says if goog
-	// has if error is due to some glitch it can  be good on the end
+	//We could continue on the end crc +  timeout with not enough data  will says if good anyway
+	//  if error is due to some glitch extra rcv , it can  be good on the end
 	HAL_UART_Receive_IT(Rx->huart, (void*)&Rx->RxByte,1);
 	Rcv_ReamTimeOut(Rx);
 }
-
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	struct UartRcv_t  *Rx = htim == EdkRx.htim ? &EdkRx : &MotRx;
@@ -317,6 +331,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	htim->Instance->CNT = 0 ;
 	Rx->TimedOut = 1;
 }
+
 /**
  * reset reception
  */
@@ -327,8 +342,6 @@ void RxReset( struct UartRcv_t  *Rx){
 	 Rx->LastRxTick = HAL_GetTick();
 #endif
 }
-
-
 
 void LedCheck(){
 	if( ToggleLed  ){
@@ -348,15 +361,27 @@ void SetLight(){
 		OnLvl_p = OnLvl;
 		htim1.Instance->CCR1 = LightOn ? OnLvl : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
 	}
+	HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn );
 }
 
-// test sequence
+void BrakeCheck(){
+	int BrakeIn = HAL_GPIO_ReadPin(BRAKE_IN_GPIO_Port, BRAKE_IN_Pin);
+	BrakeActive = BrakeIn;
+	HAL_GPIO_WritePin(BRAKE_ON_GPIO_Port, BRAKE_ON_Pin, BrakeActive);
+}
+
+void HornCheck(){
+	int HornIn = HAL_GPIO_ReadPin(BUT_HORN_GPIO_Port, BUT_HORN_Pin);
+	HAL_GPIO_WritePin(HORN_ON_GPIO_Port, HORN_ON_Pin, !HornIn); // io  is pull-up with button short to gnd
+}
+
+// test sequence we send to ourself
 static uint8_t Pas1_Ligh0[] ={ 0x59, 0x80, 0x00, 0x1A, 0x00, 0x3C, 0x2F }; //EDK sent PAS 1 light off
 static uint8_t Pas2_Ligh1[] ={ 0x59, 0x41, 0x00, 0x1A, 0x00, 0x3C, 0xF0 }; //EDK sent PAS 12 light on
 uint8_t *DbgTx= Pas2_Ligh1; //change during debug session  to one  above array or data to send ptr
 
 /**
- * send actual DbgTx data array on Mot Tx (ext wired to Edk Rx ofr debu)
+ * send actual DbgTx data array on Mot Tx (externaly  wired to Edk Rx for dev and debug)
  * @param Cnt [in/out] byte count to send ,  cleared at output
  */
 void DoDbgTx(int *Cnt){
@@ -373,9 +398,11 @@ void MotDbg( char *str){
 		HAL_UART_Transmit_DMA(EdkRx.huart, (void*)str, n);
 	}
 }
-
-extern uint8_t _eedata_start; /* Symbol defined in the linker script */
+/* Symbols defined in the linker script to mark the non volatile "eeprom" flash area start and end
+ * we'll use this to save settings such as light intensity level, brake with no speed time max  */
+extern uint8_t _eedata_start;
 extern uint8_t _eedata_end;
+
 struct EeData_t {
 	uint8_t EeUSed_Res; //for free/use next management 0 deleted not use anymore 0xFF free any non 0xFF
 	// user data below
@@ -403,16 +430,6 @@ void ee_check(){
 // very long  ? => enter  lvl setting level  increase level rotating in aprox  1 sec step and set new lev on release
 /* USER CODE END 0 */
 
-volatile int nExti=0;
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	int v;
-	if( GPIO_Pin == BUT_LIGHT_Pin ){
-		v = HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port,BUT_LIGHT_Pin );
-		DbgIO2(v);
-		nExti++;
-	}
-
-}
 /**
   * @brief  The application entry point.
   * @retval int
@@ -454,6 +471,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM1_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   //configure_tracing();
   ee_check();
@@ -468,7 +486,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-  	  //Check for 2 Rx time out ou Rx liit
+  	  //Check for 2 Rx time out out Rx limit
 	  for( i=0; i<2; i ++ ) { //dbgg only run the displauy rx
 		 Rx = i==0 ? &EdkRx : &MotRx;
 
@@ -476,6 +494,10 @@ int main(void)
 			 if(Rx->Process )
 					Rx->Process(Rx);
 			 RxReset(Rx);
+			 //When process/validate is bad shift data out rather than reset any better ?
+			 // this can cope with case we had data from prev or junk + current packet still  entering
+			 // this shall not occur with no rx time out detection any partial packet is droped.
+
 		 }else {
 #ifdef SOFT_TIMEOUT
 			 Rx->TimedOut = HAL_GetTick()  - Rx->LastRxTick > SOFT_TIMEOUT;
@@ -485,7 +507,9 @@ int main(void)
 			 }
 		 }
 	  }
+	  //todo handle usb rx
 	  if( DbgTxCnt || RepDbg ){
+		  // do debug tx
 		  if( RepDbg && HAL_GetTick() > TickNext ) {
 			  DbgTxCnt=7;
 			  RepDbg--;
@@ -493,6 +517,7 @@ int main(void)
 			  DoDbgTx((void*)&DbgTxCnt);
 		  }
 	  }
+	  BrakeCheck();
 	  LedCheck();
 	  if( light_upd){
 		  SetLight();

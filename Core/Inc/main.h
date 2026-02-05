@@ -57,6 +57,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LED_Pin GPIO_PIN_13
+#define LED_GPIO_Port GPIOC
 #define BUT_LIGHT_Pin GPIO_PIN_1
 #define BUT_LIGHT_GPIO_Port GPIOA
 #define BUT_LIGHT_EXTI_IRQn EXTI1_IRQn
@@ -65,10 +67,18 @@ void Error_Handler(void);
 #define BUT_HORN_EXTI_IRQn EXTI9_5_IRQn
 #define DBG2_Pin GPIO_PIN_1
 #define DBG2_GPIO_Port GPIOB
-#define LED_Pin GPIO_PIN_12
-#define LED_GPIO_Port GPIOB
+#define HORN_ON_Pin GPIO_PIN_12
+#define HORN_ON_GPIO_Port GPIOB
 #define DBG_IO_Pin GPIO_PIN_13
 #define DBG_IO_GPIO_Port GPIOB
+#define FLIGHT_PWM_Pin GPIO_PIN_14
+#define FLIGHT_PWM_GPIO_Port GPIOB
+#define BRAKE_ON_Pin GPIO_PIN_5
+#define BRAKE_ON_GPIO_Port GPIOB
+#define RLIGHT_ON_Pin GPIO_PIN_8
+#define RLIGHT_ON_GPIO_Port GPIOB
+#define BRAKE_IN_Pin GPIO_PIN_9
+#define BRAKE_IN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
