@@ -41,7 +41,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define ARRAY_SIZE(x)  (sizeof(x)/sizeof(x[0]))
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -94,6 +94,7 @@ int LightOn_p=1; // set by process to sniffed light  value
 volatile int OnLvl=512;
 int OnLvl_p=0;
 volatile int BrakeActive=0;
+int FlightPwm = 0; //may init by ee or chg by button combo
 
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
@@ -267,7 +268,7 @@ struct UartRcv_t   MotRx = {
 		.Process = MotProcess,
 };
 struct UartRcv_t UsbRx = {
-	.RxMax =  sizeof(UsbRx.RxBuf), // no rela limit
+	.RxMax =  sizeof(UsbRx.RxBuf) -1 , // keep one to add 0 en f=to use string function
 	.RxBufSz = sizeof(UsbRx.RxBuf),
 	.huart = &huart1,
 	// no process not header
@@ -352,16 +353,37 @@ void LedCheck(){
 	}
 }
 
+struct Lbut_t {
+	uint8_t  State;
+	uint32_t TLastChg;
+} Lbut;
+
 void SetLight(){
+	uint8_t ButState =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
+
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
 	LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
-	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ){
+
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ||ButState != Lbut.State ){
+		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
-		htim1.Instance->CCR1 = LightOn ? OnLvl : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
+		IsOn = LightOn | ButState;
+		if( FlightPwm ){
+			OnLv = ButState ==0 ? OnLvl : 1025; //full on when but pressed
+			htim1.Instance->CCR1 = IsOn ? OnLv  : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
+		}
+		else {
+			HAL_GPIO_WritePin(FLIGHT_PWM_GPIO_Port,FLIGHT_PWM_Pin, IsOn);
+		}
+		HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn); // real ligh no pww not chg on flash by button
 	}
 	HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn );
+	if( Lbut.State != ButState ){
+		Lbut.TLastChg = HAL_GetTick();
+		Lbut.State = ButState;
+	}
 }
 
 void BrakeCheck(){
@@ -428,6 +450,82 @@ void ee_check(){
 // short when on => nothing of set lvl max , short off befoe one "high beam warm"
 // long turn on/off as time > no action on release
 // very long  ? => enter  lvl setting level  increase level rotating in aprox  1 sec step and set new lev on release
+
+void InitLight(){
+	// tim1 ch2n
+	FlightPwm=1; //get from ee
+	htim1.Instance->CCR1 = 0; //Set off default before first  update done
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+}
+
+struct UCmd_t {
+	const char * cmd ;
+	char fmt;
+	int *param;
+	int len;
+	void (*validate)(struct UCmd_t *);
+};
+
+int CmdL;
+void ValidateLight(struct UCmd_t *cmd){
+	int v;
+	if( *cmd->param<0 ){
+		v =0;
+	}
+	else if ( *cmd->param>= 100 ){
+		v= 100;
+	}else {
+		v = *cmd->param;
+	}
+	OnLvl = v*1024/100;
+}
+struct UCmd_t Cmds[]= {
+		{ .cmd = "ligh", .fmt = 'd' , .param = &CmdL , .validate = ValidateLight},
+};
+
+#define IsBlank(x) (x==' ' || x == '\t' || x == '\r' || x == '\n')
+
+void UCmdCheck(){
+	int i,c;
+	if( UsbRx.nRx >=  UsbRx.RxMax ){
+		//shirt ?
+	}
+	//Trim the input
+	i=0;
+	while( IsBlank(UsbRx.RxBuf[i]) && i < UsbRx.nRx ){
+		i++;
+	}
+	// trim and update ptr must be done int clr to avoid race with uuart handler
+	if( i != 0 ){
+		if( UsbRx.nRx > 1 )
+		__disable_irq();
+		if( UsbRx.nRx  -i > 1 ){
+			//else mean nothing left no need to move
+			memmove(UsbRx.RxBuf, UsbRx.RxBuf+i, UsbRx.nRx-i );
+		}
+		 UsbRx.nRx-=i; //may be 0 now
+		__enable_irq();
+	}
+	// check if we have \n if not not evben check
+	UsbRx.RxBuf[UsbRx.nRx]=0;
+	if( strchr(UsbRx.RxBuf,'\n')){
+		for( c=0; c<ARRAY_SIZE(Cmds );c++){
+			if( Cmds[c].len <= UsbRx.nRx ){ // we have at least cmd len data
+				if( strncmp(UsbRx.RxBuf, Cmds[c].cmd, Cmds[c].len ) == 0 ){
+					//match
+					break;
+				}
+			}
+		}
+	}
+}
+
+void UCmdInit(){
+	int i;
+	for( i=0; i<ARRAY_SIZE(Cmds );i++){
+		Cmds[i].len = strlen(Cmds[i].cmd);
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -474,11 +572,14 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   //configure_tracing();
+
   ee_check();
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  UCmdInit();
+  InitLight();
   SetLight(); // init prev
   KickRx(&EdkRx);
   KickRx(&MotRx);
+  KickRx(&UsbRx);
 
   /* USER CODE END 2 */
 

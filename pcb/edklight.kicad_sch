@@ -3516,6 +3516,16 @@
 		)
 		(uuid "360230fe-d9d2-4d8b-bad6-af5f59de6d67")
 	)
+	(text "tim1 pwm"
+		(exclude_from_sim no)
+		(at 79.248 109.474 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "99e56865-5382-4de3-bada-857feae55877")
+	)
 	(text "Green"
 		(exclude_from_sim no)
 		(at 209.55 125.73 0)
@@ -3525,6 +3535,16 @@
 			)
 		)
 		(uuid "9a29355a-0558-401a-832e-43ac8768085f")
+	)
+	(text "tim1 ch2n"
+		(exclude_from_sim no)
+		(at 58.42 107.188 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "d110320d-0ece-474a-9ce5-1da0a7f10496")
 	)
 	(text "Red"
 		(exclude_from_sim no)
