@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,6 +63,7 @@ void MotDbg( char *str);
 #define SOFT_TIMEOUT	3 // ifdef use rx end of  message by soft time  time out else h/w timer used
 //the 3  define the  time out in tick so between 2 and 3  ms given  1 ms error  on start and check
 struct UartRcv_t {
+	const char *Name; //human readable nick naleuse in log etc ..
 	char RxByte; // recv byte
 	volatile uint8_t nRx;   // Data cnt in Rx Buf
 	uint8_t RxMax; // Size of burst
@@ -244,6 +246,7 @@ void  MotProcess(struct UartRcv_t *Rx){
    */
 
 struct UartRcv_t   EdkRx = {
+		.Name ="Edk",
 		.RxMax = 7, // edk sent 7 byte per packet
 		.HdrByte = 0x59,
 		.RxBufSz = sizeof(EdkRx.RxBuf),
@@ -257,6 +260,7 @@ struct UartRcv_t   EdkRx = {
 };
 
 struct UartRcv_t   MotRx = {
+		.Name ="Mot",
 		.RxMax = 9, // tsdz2b sent 8 byte per packet
 		.HdrByte = 0x43,
 		.RxBufSz = sizeof(MotRx.RxBuf),
@@ -267,7 +271,10 @@ struct UartRcv_t   MotRx = {
 		  */
 		.Process = MotProcess,
 };
+
+
 struct UartRcv_t UsbRx = {
+	.Name ="Usb",
 	.RxMax =  sizeof(UsbRx.RxBuf) -1 , // keep one to add 0 en f=to use string function
 	.RxBufSz = sizeof(UsbRx.RxBuf),
 	.huart = &huart1,
@@ -315,7 +322,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
-	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : &MotRx;
+	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : huart == MotRx.huart  ? &MotRx : &UsbRx;
 	Rx->nErr++;
 	//Rx->nRx = 0;
 	//We could continue on the end crc +  timeout with not enough data  will says if good anyway
@@ -460,39 +467,106 @@ void InitLight(){
 
 struct UCmd_t {
 	const char * cmd ;
-	char fmt;
-	int *param;
+	const char * help;
 	int len;
-	void (*validate)(struct UCmd_t *);
+	void (*validate)(struct UCmd_t *, char*);
 };
 
 int CmdL;
-void ValidateLight(struct UCmd_t *cmd){
-	int v;
-	if( *cmd->param<0 ){
+#define IsBlank(x) (x==' ' || x == '\t' || x == '\r' || x == '\n')
+void ValidateLight(struct UCmd_t *cmd, char *str){
+	int v,n;
+	if( !IsBlank(str[cmd->len]) ){
+		//we need white space and then only value
+		return;
+	}
+	n = sscanf(str+cmd->len ,"%d", &v);
+	if( n < 1)
+		return ;
+
+	if( v<0 ){
 		v =0;
 	}
-	else if ( *cmd->param>= 100 ){
+	else if ( v>= 100 ){
 		v= 100;
-	}else {
-		v = *cmd->param;
 	}
 	OnLvl = v*1024/100;
 }
+
 struct UCmd_t Cmds[]= {
-		{ .cmd = "ligh", .fmt = 'd' , .param = &CmdL , .validate = ValidateLight},
+		/*warning parser is over simple not too command can start the same or if they do
+		 * the longest one must be place first so longest match/cmp  is done first
+		 *
+		 */
+		{ .cmd = "lvl", .validate = ValidateLight , .help="% d 0-100 %% pwm"},
 };
 
-#define IsBlank(x) (x==' ' || x == '\t' || x == '\r' || x == '\n')
+struct UsbTask_t {
+	int ToSend; // shall eb set when we have stuff waiting to eb sent
+	int LastNRx; //use for usb parser to detect  new char arrival
+}UsbTh;
 
-void UCmdCheck(){
-	int i,c;
-	if( UsbRx.nRx >=  UsbRx.RxMax ){
-		//shirt ?
+int UsbIsDone(){
+	//We sent echo w/o waiting writing in dr but we too send via dma what affect state
+	return (UsbRx.huart->Instance->SR & UART_FLAG_TXE ) &&(	UsbRx.huart->gState ==  HAL_UART_STATE_READY ) ;
+}
+
+void DoHelp(){
+	Usb.ToSend = 1;
+	UsbRx.huart->Instance->DR = '?';
+}
+
+struct UartRcv_t *RxLut[] = {
+		&EdkRx,
+		&MotRx,
+		&UsbRx
+};
+
+int UsbRxWaitTxrdy(int MsMax){
+	t0 = HAL_GetTick();
+	do {
+		if ( UsbRx.huart->gState ==  HAL_UART_STATE_READY ){
+				return 0;
+		}
+	}while(HAL_GetTick() - t0 < MsMax);
+	return -1;
+}
+
+void DoStatus(){
+	char *Buf;
+	int i,n;
+	struct UartRcv_t *Rx;
+	n= sprintf(buf,"Now %d",HAL_GetTick());
+	for( i=0 ; i < ARRAY_SIZE(RxLut); i++ ){
+		Rx=RxLut[i];
+		n += sprintf(buf+n, "%s\nBadRX %d Err %d\n", Rx->Name, Rx->BadRx, Rx->nErr);
+		n += sprintf(buf+n, "Lg %d Lrx %d  ", Rx->LastRcvGood, Rx->LastRxTick);
 	}
-	//Trim the input
+	UsbRxWaitTxrdy(5);
+}
+#define IsBlank(x) (x==' ' || x == '\t' || x == '\r' || x == '\n')
+void UCmdCheck(){
+	int i,c, match,n;
+	char cmd[32];
+	if( UsbTh.ToSend ){
+		//check sending thing waiting for prev done
+		//ix TXE and state rdy we can clear
+		if( UsbIsDone() )
+			UsbTh.ToSend=0;
+	}
+	if( UsbRx.nRx <=  UsbTh.LastNRx )
+		return;
+	if( UsbRx.nRx >=  UsbRx.RxMax ){
+		//shirt ? trash
+	}
+	//local ehco if no data to send direct handlign else put to what to send or discard ;
+	if( Usb.ToSend  == 0 ){
+		Usb.ToSend = 1;
+		UsbRx.huart->Instance->DR = UsbRx.RxBuf[UsbTh.LastNRx]; //send echo no wait don't care error etc
+	}
+	//Trim the input discard any blank and non alpha likely junk
 	i=0;
-	while( IsBlank(UsbRx.RxBuf[i]) && i < UsbRx.nRx ){
+	while( ( !isalpha( ( (int)UsbRx.RxBuf[i]) ) || IsBlank(UsbRx.RxBuf[i] ) ) && i < UsbRx.nRx ){
 		i++;
 	}
 	// trim and update ptr must be done int clr to avoid race with uuart handler
@@ -503,21 +577,37 @@ void UCmdCheck(){
 			//else mean nothing left no need to move
 			memmove(UsbRx.RxBuf, UsbRx.RxBuf+i, UsbRx.nRx-i );
 		}
-		 UsbRx.nRx-=i; //may be 0 now
+		 n=UsbRx.nRx-=i; //may be 0 now
 		__enable_irq();
 	}
-	// check if we have \n if not not evben check
-	UsbRx.RxBuf[UsbRx.nRx]=0;
-	if( strchr(UsbRx.RxBuf,'\n')){
+	// check if we have \n if not not evben check stop using nRx racy but n from now
+	if( n <1 )
+		return;
+	memcpy(cmd,UsbRx.RxBuf,  n); //content can change in irq handle best cpy avosi any issue
+	cmd[n]=0;
+	match=0;
+	if( cmd[n-1]== '\r'  || cmd[n-1]== '\n' ){
 		for( c=0; c<ARRAY_SIZE(Cmds );c++){
 			if( Cmds[c].len <= UsbRx.nRx ){ // we have at least cmd len data
-				if( strncmp(UsbRx.RxBuf, Cmds[c].cmd, Cmds[c].len ) == 0 ){
-					//match
+				if( strncmp(cmd, Cmds[c].cmd, Cmds[c].len ) == 0 ){
+					match = 1;
 					break;
 				}
 			}
 		}
 	}
+	if( match ){
+		//todo call cmd d
+		Cmds[c].validate(Cmds+c, cmd);
+		UsbRx.nRx = n = 0; //fixme Remove the cmd or reset all ?
+
+	}
+	else{
+		Rx->BadRx++; // reset or not
+		UsbRx.nRx = n = 0; // full no command reset
+		DoHelp();
+	}
+	UsbTh.LastNRx=n;
 }
 
 void UCmdInit(){
@@ -609,6 +699,7 @@ int main(void)
 		 }
 	  }
 	  //todo handle usb rx
+	  UCmdCheck();
 	  if( DbgTxCnt || RepDbg ){
 		  // do debug tx
 		  if( RepDbg && HAL_GetTick() > TickNext ) {
