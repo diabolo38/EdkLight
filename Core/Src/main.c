@@ -493,17 +493,24 @@ void ValidateLight(struct UCmd_t *cmd, char *str){
 	OnLvl = v*1024/100;
 }
 
+void CmdStat(struct UCmd_t *cmd, char *str);
+
+
 struct UCmd_t Cmds[]= {
 		/*warning parser is over simple not too command can start the same or if they do
 		 * the longest one must be place first so longest match/cmp  is done first
 		 *
 		 */
 		{ .cmd = "lvl", .validate = ValidateLight , .help="% d 0-100 %% pwm"},
+		{ .cmd = "stat", .validate = CmdStat , .help="do log status"},
 };
 
 struct UsbTask_t {
 	int ToSend; // shall eb set when we have stuff waiting to eb sent
 	int LastNRx; //use for usb parser to detect  new char arrival
+	uint32_t StatusErr;
+
+	char LogBuf[1024];
 }UsbTh;
 
 int UsbIsDone(){
@@ -512,7 +519,7 @@ int UsbIsDone(){
 }
 
 void DoHelp(){
-	Usb.ToSend = 1;
+	UsbTh.ToSend = 1;
 	UsbRx.huart->Instance->DR = '?';
 }
 
@@ -523,7 +530,7 @@ struct UartRcv_t *RxLut[] = {
 };
 
 int UsbRxWaitTxrdy(int MsMax){
-	t0 = HAL_GetTick();
+	uint32_t t0 = HAL_GetTick();
 	do {
 		if ( UsbRx.huart->gState ==  HAL_UART_STATE_READY ){
 				return 0;
@@ -533,17 +540,28 @@ int UsbRxWaitTxrdy(int MsMax){
 }
 
 void DoStatus(){
-	char *Buf;
+	char *buf=UsbTh.LogBuf;
 	int i,n;
 	struct UartRcv_t *Rx;
-	n= sprintf(buf,"Now %d",HAL_GetTick());
+	n= sprintf(buf,"Now %u\n", (unsigned)HAL_GetTick());
 	for( i=0 ; i < ARRAY_SIZE(RxLut); i++ ){
 		Rx=RxLut[i];
-		n += sprintf(buf+n, "%s\nBadRX %d Err %d\n", Rx->Name, Rx->BadRx, Rx->nErr);
-		n += sprintf(buf+n, "Lg %d Lrx %d  ", Rx->LastRcvGood, Rx->LastRxTick);
+		n += sprintf(buf+n, "%s\nBadRX %u Err %u\n", Rx->Name, (unsigned)Rx->BadRx, (unsigned)Rx->nErr);
+		n += sprintf(buf+n, "Lg %u Lrx %u\n", (unsigned)Rx->LastRcvGood, (unsigned)Rx->LastRxTick);
 	}
-	UsbRxWaitTxrdy(5);
+	n+= sprintf(buf+n,"Th stat err %u\n", (unsigned)UsbTh.StatusErr);
+	if( UsbRxWaitTxrdy(5) == 0 ){
+		UsbTh.ToSend =n;
+		HAL_UART_Transmit_DMA(UsbRx.huart, (void*)buf, n);
+	}else {
+		//too bad simply keep track
+		UsbTh.StatusErr++;
+	}
 }
+void CmdStat(struct UCmd_t *cmd, char *str){
+	DoStatus();
+}
+
 #define IsBlank(x) (x==' ' || x == '\t' || x == '\r' || x == '\n')
 void UCmdCheck(){
 	int i,c, match,n;
@@ -554,14 +572,15 @@ void UCmdCheck(){
 		if( UsbIsDone() )
 			UsbTh.ToSend=0;
 	}
+
 	if( UsbRx.nRx <=  UsbTh.LastNRx )
 		return;
 	if( UsbRx.nRx >=  UsbRx.RxMax ){
 		//shirt ? trash
 	}
 	//local ehco if no data to send direct handlign else put to what to send or discard ;
-	if( Usb.ToSend  == 0 ){
-		Usb.ToSend = 1;
+	if( UsbTh.ToSend  == 0 ){
+		UsbTh.ToSend = 1;
 		UsbRx.huart->Instance->DR = UsbRx.RxBuf[UsbTh.LastNRx]; //send echo no wait don't care error etc
 	}
 	//Trim the input discard any blank and non alpha likely junk
@@ -571,18 +590,20 @@ void UCmdCheck(){
 	}
 	// trim and update ptr must be done int clr to avoid race with uuart handler
 	if( i != 0 ){
-		if( UsbRx.nRx > 1 )
 		__disable_irq();
 		if( UsbRx.nRx  -i > 1 ){
 			//else mean nothing left no need to move
 			memmove(UsbRx.RxBuf, UsbRx.RxBuf+i, UsbRx.nRx-i );
 		}
-		 n=UsbRx.nRx-=i; //may be 0 now
+		n= (UsbRx.nRx-=i); //may be 0 now
 		__enable_irq();
 	}
+	else
+		n = UsbTh.LastNRx+1; //use all no trime
+
 	// check if we have \n if not not evben check stop using nRx racy but n from now
 	if( n <1 )
-		return;
+		goto done;
 	memcpy(cmd,UsbRx.RxBuf,  n); //content can change in irq handle best cpy avosi any issue
 	cmd[n]=0;
 	match=0;
@@ -595,18 +616,22 @@ void UCmdCheck(){
 				}
 			}
 		}
-	}
-	if( match ){
-		//todo call cmd d
-		Cmds[c].validate(Cmds+c, cmd);
-		UsbRx.nRx = n = 0; //fixme Remove the cmd or reset all ?
 
+		if( match ){
+			Cmds[c].validate(Cmds+c, cmd);
+			UsbRx.nRx = n = 0; //fixme Remove the cmd or reset all ?
+		}
+		else
+		{
+			UsbRx.BadRx++; // reset or not
+			UsbRx.nRx = n = 0; // full no command reset
+			DoHelp();
+		}
 	}
 	else{
-		Rx->BadRx++; // reset or not
-		UsbRx.nRx = n = 0; // full no command reset
-		DoHelp();
+		//todod check we're full trash UsbRx.nRx = n =
 	}
+done:
 	UsbTh.LastNRx=n;
 }
 
@@ -691,7 +716,9 @@ int main(void)
 
 		 }else {
 #ifdef SOFT_TIMEOUT
-			 Rx->TimedOut = HAL_GetTick()  - Rx->LastRxTick > SOFT_TIMEOUT;
+			 if( Rx->nRx > 0){ //no time handlign until rcv anything
+				 Rx->TimedOut = HAL_GetTick()  - Rx->LastRxTick > SOFT_TIMEOUT;
+			 }
 #endif
 			 if( Rx->TimedOut && Rx->nRx < Rx->RxMax ){ // repeat check minimize unlikely race effect
 				 RxReset(Rx);
