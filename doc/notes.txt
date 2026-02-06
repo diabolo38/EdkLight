@@ -80,13 +80,16 @@ Max Powzer ~2.5W (50mA @ 54V)
    Green Brake -
    Yellow Brake +
 
-Higo 4  same color but black=blue 
+Higo 4 same color as light but black=blue 
 
  Red =>  lighjt + Vbat 
  black/blue = light -  on bot mos
  Green = brk - on bt mos 
  Yellow =brk + vbat
  
+  female front view 
+rouge L+   x  u  x green Brk - 
+Yellow B+  x     x  Blue Light -
  
 
 dual push buttton 
@@ -98,7 +101,10 @@ higo 4
 Red+black : light
 white+green : horn 
 
-
+  female front view 
+  white  x  u  x Black
+  Green  x     x  Red          
+           bot 
 mcu
 =====
 For dev proto the stm32f103 black pill low cost c6 or 8 (10K/20K sram)  
