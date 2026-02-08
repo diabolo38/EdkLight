@@ -31,12 +31,37 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+struct GlobStatus_t {
+	struct {
+		uint16_t EmptyLog; //time log call giving 0 sz log
+		uint16_t WrapLog;  // buffer end wrap back to 0
+		uint16_t DropLog;  // buffer end wrap back to 0
+		uint16_t WaitLog;  // buffer end wrap back to 0
+	};
+};
+extern struct GlobStatus_t gStats;
+#define Stats(x) gStats.x
 
+struct EeData_t {
+#define EE_CTRL_VALID	0xA5
+#define EE_CTRL_DEL		0x00
+	uint8_t EeCtrl; //for free/use next management 0 deleted not use anymore 0xFF free (erased value) 0x5 vald dentry
+	// user data below
+	uint8_t FrontLevel; // percent *1024 => OnLvl
+	uint8_t LongPressSec;  // *1000 LongPressMs
+	//update SetConfFromEe and SaveSetting when adding or modifying here
+	uint8_t res[4];
+	uint8_t Sum;  //umm of all byte to here = this
+};
+
+int EeSetEntry(struct EeData_t *pSet);
+const struct EeData_t * EeActiveEntry();
+int EeIsValidEntry(const struct EeData_t *pEe);
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -53,7 +78,10 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+uint32_t SumSerie(uint8_t *Data, int n);
+void ee_check();
+void Log(const char * fmt, ...);
+void LogTxComplete();
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

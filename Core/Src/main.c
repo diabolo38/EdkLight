@@ -93,10 +93,16 @@ int ToggleLed=0;
 volatile int light_upd; // flags set when reception done to activate  light value updated task (reset once done)
 int LightOn=0; // set by process to sniffed light  value
 int LightOn_p=1; // set by process to sniffed light  value
-volatile int OnLvl=512;
 int OnLvl_p=0;
 volatile int BrakeActive=0;
 int FlightPwm = 0; //may init by ee or chg by button combo
+
+struct GlobStatus_t gStats;
+//todo below make init value from nvm
+volatile int OnLvl=512;
+int LongPressMs=3000;
+#define MinLongPressMs 1000
+
 
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
@@ -321,6 +327,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 		Rcv_ReamTimeOut(Rx);  // save cpu time and minimize race timer isr/idle rx check
 }
 
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+	if( huart == UsbRx.huart){
+		LogTxComplete();
+	}
+}
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
 	struct UartRcv_t  *Rx = huart == EdkRx.huart ? &EdkRx : huart == MotRx.huart  ? &MotRx : &UsbRx;
 	Rx->nErr++;
@@ -360,25 +371,36 @@ void LedCheck(){
 	}
 }
 
+enum ButState_e {
+	BStWaitPress=0,
+	BStLongWait = 1,
+	BStLongDone = 2 , // wait long done action now wait release or else
+};
 struct Lbut_t {
-	uint8_t  State;
+	uint8_t  Lvl; //Actiev level
+	uint8_t  State; // state for long shot detect
 	uint32_t TLastChg;
+
 } Lbut;
 
+void OnLongPressLight(){
+	//TODO
+}
 void SetLight(){
-	uint8_t ButState =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
+	uint32_t now;
+	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
 
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
-	LedSetTick= HAL_GetTick();
+	now= LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
 
-	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ||ButState != Lbut.State ){
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ||ButLvl != Lbut.Lvl ){
 		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
-		IsOn = LightOn | ButState;
+		IsOn = LightOn | ButLvl==0; //When pulse from button  we may set off few msec to emphasis light pulse
 		if( FlightPwm ){
-			OnLv = ButState ==0 ? OnLvl : 1025; //full on when but pressed
+			OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
 			htim1.Instance->CCR1 = IsOn ? OnLv  : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
 		}
 		else {
@@ -387,9 +409,19 @@ void SetLight(){
 		HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn); // real ligh no pww not chg on flash by button
 	}
 	HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn );
-	if( Lbut.State != ButState ){
-		Lbut.TLastChg = HAL_GetTick();
-		Lbut.State = ButState;
+
+	if( Lbut.Lvl != ButLvl ){
+		Lbut.TLastChg = now;
+		Lbut.Lvl = ButLvl;
+		Lbut.State = ButLvl == 0  ? Lbut.State = BStLongWait : BStWaitPress;
+	}
+	if( ButLvl == 0 ) {
+		if( now -  Lbut.TLastChg >  LongPressMs && Lbut.State == BStLongWait ){
+			//reach
+			Lbut.State = BStLongDone;
+			//TODO fire action on long
+			OnLongPressLight();
+		}
 	}
 }
 
@@ -427,24 +459,7 @@ void MotDbg( char *str){
 		HAL_UART_Transmit_DMA(EdkRx.huart, (void*)str, n);
 	}
 }
-/* Symbols defined in the linker script to mark the non volatile "eeprom" flash area start and end
- * we'll use this to save settings such as light intensity level, brake with no speed time max  */
-extern uint8_t _eedata_start;
-extern uint8_t _eedata_end;
 
-struct EeData_t {
-	uint8_t EeUSed_Res; //for free/use next management 0 deleted not use anymore 0xFF free any non 0xFF
-	// user data below
-	uint8_t FrontLevel;
-	unsigned RearBlink:1;
-	uint8_t RearPer;
-};
-void ee_check(){
-	uint8_t *pEE = &_eedata_start;
-	while( pEE < &_eedata_end){
-		pEE+=sizeof(struct EeData_t);
-	}
-}
 
 //  state     cond/event -> next {action}; * rep cond act ...
 // rest state = high (pull up ) button short capacitor to gnd
@@ -491,9 +506,11 @@ void ValidateLight(struct UCmd_t *cmd, char *str){
 		v= 100;
 	}
 	OnLvl = v*1024/100;
+	Log("Lvl set %d %d%%",OnLvl, v );
 }
 
 void CmdStat(struct UCmd_t *cmd, char *str);
+void CmdConf(struct UCmd_t *cmd, char *str);
 
 
 struct UCmd_t Cmds[]= {
@@ -503,6 +520,7 @@ struct UCmd_t Cmds[]= {
 		 */
 		{ .cmd = "lvl", .validate = ValidateLight , .help="% d 0-100 %% pwm"},
 		{ .cmd = "stat", .validate = CmdStat , .help="do log status"},
+		{ .cmd = "conf", .validate = CmdConf , .help="show config"},
 };
 
 struct UsbTask_t {
@@ -510,7 +528,7 @@ struct UsbTask_t {
 	int LastNRx; //use for usb parser to detect  new char arrival
 	uint32_t StatusErr;
 
-	char LogBuf[1024];
+
 }UsbTh;
 
 int UsbIsDone(){
@@ -520,7 +538,7 @@ int UsbIsDone(){
 
 void DoHelp(){
 	UsbTh.ToSend = 1;
-	UsbRx.huart->Instance->DR = '?';
+	Log("\n?\n");
 }
 
 struct UartRcv_t *RxLut[] = {
@@ -539,25 +557,60 @@ int UsbRxWaitTxrdy(int MsMax){
 	return -1;
 }
 
+
+void LogConf(){
+	Log("Conf : Lvl %d %d%% L Press %ds\n", OnLvl, OnLvl*100/1024, LongPressMs/1000);
+}
+
 void DoStatus(){
-	char *buf=UsbTh.LogBuf;
-	int i,n;
+	int i;
 	struct UartRcv_t *Rx;
-	n= sprintf(buf,"Now %u\n", (unsigned)HAL_GetTick());
+	Log("Now %u\n", (unsigned)HAL_GetTick());
 	for( i=0 ; i < ARRAY_SIZE(RxLut); i++ ){
 		Rx=RxLut[i];
-		n += sprintf(buf+n, "%s\nBadRX %u Err %u\n", Rx->Name, (unsigned)Rx->BadRx, (unsigned)Rx->nErr);
-		n += sprintf(buf+n, "Lg %u Lrx %u\n", (unsigned)Rx->LastRcvGood, (unsigned)Rx->LastRxTick);
+		Log("%s\nBadRX %u Err %u\n", Rx->Name, (unsigned)Rx->BadRx, (unsigned)Rx->nErr);
+		Log("Lg %u Lrx %u\n", (unsigned)Rx->LastRcvGood, (unsigned)Rx->LastRxTick);
 	}
-	n+= sprintf(buf+n,"Th stat err %u\n", (unsigned)UsbTh.StatusErr);
-	if( UsbRxWaitTxrdy(5) == 0 ){
-		UsbTh.ToSend =n;
-		HAL_UART_Transmit_DMA(UsbRx.huart, (void*)buf, n);
-	}else {
-		//too bad simply keep track
-		UsbTh.StatusErr++;
-	}
+	Log("Th stat err %u\n", (unsigned)UsbTh.StatusErr);
+	Log("Log empty %d Wrap %d Drop %d Wait %d\n ",
+			Stats(EmptyLog), Stats(WrapLog), Stats(DropLog),Stats(WaitLog));
+	LogConf();
 }
+
+void SaveSetting(){
+	struct EeData_t Set={0};
+	Set.FrontLevel = 100*OnLvl/1024;
+	Set.LongPressSec = LongPressMs / 1000;
+	EeSetEntry(&Set);
+}
+
+void SetConfFromEe(const struct EeData_t *Activ){
+	OnLvl = Activ->FrontLevel* 1024/100;
+	LongPressMs = Activ->LongPressSec*1000;
+	LongPressMs = LongPressMs < MinLongPressMs ? MinLongPressMs : LongPressMs; // as 0 may lead to strnage behavior clip some value
+
+}
+
+void InitConf(){
+	const struct EeData_t *Activ;
+	Activ = EeActiveEntry();
+	if( Activ != NULL ){
+		if( EeIsValidEntry(Activ) ) {
+			SetConfFromEe(Activ);
+		}else {
+			//We are default but active is false update it;
+			//TODO we could have some special blink horn/light sequence to say so as this is not normal
+			//
+			SaveSetting();
+		}
+	}
+	//null we are default nothing to do
+}
+
+void CmdConf(struct UCmd_t *cmd, char *str){
+	LogConf();
+}
+
 void CmdStat(struct UCmd_t *cmd, char *str){
 	DoStatus();
 }
@@ -566,12 +619,6 @@ void CmdStat(struct UCmd_t *cmd, char *str){
 void UCmdCheck(){
 	int i,c, match,n;
 	char cmd[32];
-	if( UsbTh.ToSend ){
-		//check sending thing waiting for prev done
-		//ix TXE and state rdy we can clear
-		if( UsbIsDone() )
-			UsbTh.ToSend=0;
-	}
 
 	if( UsbRx.nRx <=  UsbTh.LastNRx )
 		return;
@@ -579,10 +626,8 @@ void UCmdCheck(){
 		//shirt ? trash
 	}
 	//local ehco if no data to send direct handlign else put to what to send or discard ;
-	if( UsbTh.ToSend  == 0 ){
-		UsbTh.ToSend = 1;
-		UsbRx.huart->Instance->DR = UsbRx.RxBuf[UsbTh.LastNRx]; //send echo no wait don't care error etc
-	}
+	Log("%c",UsbRx.RxBuf[UsbTh.LastNRx]);
+
 	//Trim the input discard any blank and non alpha likely junk
 	i=0;
 	while( ( !isalpha( ( (int)UsbRx.RxBuf[i]) ) || IsBlank(UsbRx.RxBuf[i] ) ) && i < UsbRx.nRx ){
@@ -641,6 +686,8 @@ void UCmdInit(){
 		Cmds[i].len = strlen(Cmds[i].cmd);
 	}
 }
+
+
 /* USER CODE END 0 */
 
 /**
@@ -687,8 +734,9 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   //configure_tracing();
-
-  ee_check();
+  //DoLog("Boot");
+  //ee_check();
+  InitConf();
   UCmdInit();
   InitLight();
   SetLight(); // init prev
