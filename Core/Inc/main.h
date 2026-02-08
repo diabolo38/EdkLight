@@ -62,6 +62,7 @@ struct EeData_t {
 int EeSetEntry(struct EeData_t *pSet);
 const struct EeData_t * EeActiveEntry();
 int EeIsValidEntry(const struct EeData_t *pEe);
+void EeFullErase();
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

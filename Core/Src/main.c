@@ -54,7 +54,7 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-void SetLight();
+void Task_Ligth();
 void MotDbg( char *str);
 /* USER CODE END PFP */
 
@@ -103,7 +103,9 @@ volatile int OnLvl=512;
 int LongPressMs=3000;
 #define MinLongPressMs 1000
 
-
+const int SpeedNoMove=0x7777;
+int SpeedSensor; //value seen on moto rx  shall be set to some special == unkown if no info can be senn from too long
+//some specific valuue set fo not moving , brake  consider unknwon as move as of now
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
 		HAL_GPIO_WritePin(DBG_IO_GPIO_Port, DBG_IO_Pin, set);
@@ -386,7 +388,7 @@ struct Lbut_t {
 void OnLongPressLight(){
 	//TODO
 }
-void SetLight(){
+void Task_Ligth(){
 	uint32_t now;
 	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
 
@@ -394,11 +396,26 @@ void SetLight(){
 	now= LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
 
+	if (Lbut.Lvl != ButLvl) {
+		Lbut.TLastChg = now;
+		Lbut.Lvl = ButLvl;
+		Lbut.State = ButLvl == 0 ? Lbut.State = BStLongWait : BStWaitPress;
+	}
+	if (ButLvl == 0) {
+		if (now - Lbut.TLastChg > LongPressMs && Lbut.State == BStLongWait) {
+			//reach
+			Lbut.State = BStLongDone;
+			//TODO fire action on long
+			OnLongPressLight();
+		}
+	}
 	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ||ButLvl != Lbut.Lvl ){
 		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
-		IsOn = LightOn | ButLvl==0; //When pulse from button  we may set off few msec to emphasis light pulse
+		IsOn = LightOn || ButLvl==0;
+		//When pulse press and on we shall set off few msec to emphasis light pulse
+		//WHen main light is short pulse may be used to toogle hgh/lwo beam hih/low
 		if( FlightPwm ){
 			OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
 			htim1.Instance->CCR1 = IsOn ? OnLv  : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
@@ -408,30 +425,53 @@ void SetLight(){
 		}
 		HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn); // real ligh no pww not chg on flash by button
 	}
+	//rear light is  on until display say on
 	HAL_GPIO_WritePin(RLIGHT_ON_GPIO_Port, RLIGHT_ON_Pin, LightOn );
 
-	if( Lbut.Lvl != ButLvl ){
-		Lbut.TLastChg = now;
-		Lbut.Lvl = ButLvl;
-		Lbut.State = ButLvl == 0  ? Lbut.State = BStLongWait : BStWaitPress;
+}
+
+struct BrakeeData_t {
+	unsigned  state :1;
+	unsigned  stoped:1;
+	unsigned  Active :1;
+	uint32_t LastChg;
+	uint32_t StropedStart;
+}Brake;
+
+int BrakeDebounceMs = 2;
+int BrakeOffTimeMS = 4000; // afster 4s speed 0 and brake press stop teh brake lihj
+
+void Task_Brake(){
+	uint32_t now;
+	int BrakeHide = 0;
+	now = HAL_GetTick();
+	int BrakeIn = HAL_GPIO_ReadPin(BRAKE_IN_GPIO_Port, BRAKE_IN_Pin);
+	if( Brake.state != BrakeIn ){
+		Brake.LastChg= now;
 	}
-	if( ButLvl == 0 ) {
-		if( now -  Lbut.TLastChg >  LongPressMs && Lbut.State == BStLongWait ){
-			//reach
-			Lbut.State = BStLongDone;
-			//TODO fire action on long
-			OnLongPressLight();
+	if( now - Brake.LastChg < BrakeDebounceMs ){
+		return;
+	}
+	BrakeHide = 0; //Don't hide default
+	if(BrakeIn == 0 ){ // active
+		if( SpeedSensor == SpeedNoMove ){
+			if( Brake.stoped == 0  ){
+				Brake.stoped =1;  // stop first seen
+				Brake.StropedStart = now;//Start counting tile
+			}
+			else { //keep stoped
+				BrakeHide = now - Brake.StropedStart > BrakeOffTimeMS;
+			}
+		}
+		else {
+			Brake.stoped = 0; //move hence not stoped
 		}
 	}
+	Brake.Active = (BrakeIn==0) && (! BrakeHide)  ;
+	HAL_GPIO_WritePin(BRAKE_ON_GPIO_Port, BRAKE_ON_Pin, Brake.Active);
 }
 
-void BrakeCheck(){
-	int BrakeIn = HAL_GPIO_ReadPin(BRAKE_IN_GPIO_Port, BRAKE_IN_Pin);
-	BrakeActive = BrakeIn;
-	HAL_GPIO_WritePin(BRAKE_ON_GPIO_Port, BRAKE_ON_Pin, BrakeActive);
-}
-
-void HornCheck(){
+void Task_Horn(){
 	int HornIn = HAL_GPIO_ReadPin(BUT_HORN_GPIO_Port, BUT_HORN_Pin);
 	HAL_GPIO_WritePin(HORN_ON_GPIO_Port, HORN_ON_Pin, !HornIn); // io  is pull-up with button short to gnd
 }
@@ -511,7 +551,7 @@ void ValidateLight(struct UCmd_t *cmd, char *str){
 
 void CmdStat(struct UCmd_t *cmd, char *str);
 void CmdConf(struct UCmd_t *cmd, char *str);
-
+void CmdErase(struct UCmd_t *cmd, char *str);
 
 struct UCmd_t Cmds[]= {
 		/*warning parser is over simple not too command can start the same or if they do
@@ -521,14 +561,12 @@ struct UCmd_t Cmds[]= {
 		{ .cmd = "lvl", .validate = ValidateLight , .help="% d 0-100 %% pwm"},
 		{ .cmd = "stat", .validate = CmdStat , .help="do log status"},
 		{ .cmd = "conf", .validate = CmdConf , .help="show config"},
+		{ .cmd = "erase", .validate = CmdErase , .help="Erase ee (def config)"},
 };
 
 struct UsbTask_t {
-	int ToSend; // shall eb set when we have stuff waiting to eb sent
-	int LastNRx; //use for usb parser to detect  new char arrival
+	int LastNRx; //to detect  new char arrival on usb rx
 	uint32_t StatusErr;
-
-
 }UsbTh;
 
 int UsbIsDone(){
@@ -537,7 +575,6 @@ int UsbIsDone(){
 }
 
 void DoHelp(){
-	UsbTh.ToSend = 1;
 	Log("\n?\n");
 }
 
@@ -611,6 +648,9 @@ void CmdConf(struct UCmd_t *cmd, char *str){
 	LogConf();
 }
 
+void CmdErase(struct UCmd_t *cmd, char *str){
+	EeFullErase();
+}
 void CmdStat(struct UCmd_t *cmd, char *str){
 	DoStatus();
 }
@@ -739,7 +779,7 @@ int main(void)
   InitConf();
   UCmdInit();
   InitLight();
-  SetLight(); // init prev
+  Task_Ligth(); // init prev
   KickRx(&EdkRx);
   KickRx(&MotRx);
   KickRx(&UsbRx);
@@ -784,10 +824,10 @@ int main(void)
 			  DoDbgTx((void*)&DbgTxCnt);
 		  }
 	  }
-	  BrakeCheck();
+	  Task_Brake();
 	  LedCheck();
 	  if( light_upd){
-		  SetLight();
+		  Task_Ligth();
 		  light_upd=0;
 	  }
 	  if( trace_en){
