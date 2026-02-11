@@ -73,7 +73,7 @@ Max Powzer ~2.5W (50mA @ 54V)
           
 
   
- Rear 36/48V brake(flashing)+tail light 
+Rear 36/48V brake(flashing)+tail light 
    Red    ligh +
    black  ligh -
    

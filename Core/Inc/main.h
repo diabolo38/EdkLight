@@ -63,6 +63,11 @@ int EeSetEntry(struct EeData_t *pSet);
 const struct EeData_t * EeActiveEntry();
 int EeIsValidEntry(const struct EeData_t *pEe);
 void EeFullErase();
+//lbut.C
+extern int LongPressMs;
+extern int ShortPressMs;
+int task_Lbut();
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

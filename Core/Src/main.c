@@ -100,12 +100,20 @@ int FlightPwm = 0; //may init by ee or chg by button combo
 struct GlobStatus_t gStats;
 //todo below make init value from nvm
 volatile int OnLvl=512;
-int LongPressMs=3000;
+
 #define MinLongPressMs 1000
 
-const int SpeedNoMove=0x7777;
-int SpeedSensor; //value seen on moto rx  shall be set to some special == unkown if no info can be senn from too long
-//some specific valuue set fo not moving , brake  consider unknwon as move as of now
+//motor
+int MotRcvCnt=0;
+char MotInfo[64];
+int MotSpeed;
+const int SpeedInvalid=0x7777; //until more than  noNove shall do
+const int SpeedNoMove=0x0707;
+int MotNoRxMaxMs = 1000; //notmlay 15fps so 500ms 1s plus chal be set off
+int MotTorque;
+uint8_t MotStatus;
+
+
 void DbgIO(int set){
 	if( set ==0 || set ==1 )
 		HAL_GPIO_WritePin(DBG_IO_GPIO_Port, DBG_IO_Pin, set);
@@ -158,11 +166,8 @@ void  EdkProcess(struct UartRcv_t *Rx){
 	}
 }
 
-int MotRcvCnt=0;
-char MotInfo[64];
-int MotSpd;
-int MotTorque;
-uint8_t MotStatus;
+
+
 //from https://github.com/PetteriAimonen/STM32_Trace_Example/blob/master/trace_example.c
 void ITM_Print(int port, const char *p)
 {
@@ -234,10 +239,10 @@ void  MotProcess(struct UartRcv_t *Rx){
 			MotTorque=Rx->RxBuf[4]-Rx->RxBuf[3]; //only if 4 > 3 or motot on else vive negative number or status say mot on
 		else
 			MotTorque=0;
-		MotSpd=Rx->RxBuf[7]+((uint32_t)Rx->RxBuf[7]<<8); // max 0x0707 / 1799 when stoped of very slow
+		MotSpeed=Rx->RxBuf[7]+((uint32_t)Rx->RxBuf[7]<<8); // max 0x0707 / 1799 when stoped of very slow
 		//once every sec trace
 		if( MotRcvCnt++ > 15){
-			sprintf(MotInfo,"St %02X S %d C %d",MotStatus, MotSpd, MotTorque );
+			sprintf(MotInfo,"St %02X S %d C %d",MotStatus, MotSpeed, MotTorque );
 			MotDbg(MotInfo);
 			//ITM_Print(0, MotInfo);
 			MotRcvCnt=0;
@@ -373,43 +378,28 @@ void LedCheck(){
 	}
 }
 
+#define inrange( x , min , max ) ( ((x)>= (min)) && ((x)<=(max)) )
+#define MIN(a,b) ((a)<(b) ? (a):(b))
+
 enum ButState_e {
 	BStWaitPress=0,
 	BStLongWait = 1,
 	BStLongDone = 2 , // wait long done action now wait release or else
 };
-struct Lbut_t {
-	uint8_t  Lvl; //Actiev level
-	uint8_t  State; // state for long shot detect
-	uint32_t TLastChg;
 
-} Lbut;
 
-void OnLongPressLight(){
-	//TODO
-}
 void Task_Ligth(){
 	uint32_t now;
+	int ButChg;
 	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
 
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
 	now= LedSetTick= HAL_GetTick();
 	ToggleLed=-1;
 
-	if (Lbut.Lvl != ButLvl) {
-		Lbut.TLastChg = now;
-		Lbut.Lvl = ButLvl;
-		Lbut.State = ButLvl == 0 ? Lbut.State = BStLongWait : BStWaitPress;
-	}
-	if (ButLvl == 0) {
-		if (now - Lbut.TLastChg > LongPressMs && Lbut.State == BStLongWait) {
-			//reach
-			Lbut.State = BStLongDone;
-			//TODO fire action on long
-			OnLongPressLight();
-		}
-	}
-	if( LightOn != LightOn_p ||OnLvl != OnLvl_p ||ButLvl != Lbut.Lvl ){
+	ButChg = task_Lbut( now, ButLvl);
+
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p || ButChg ){
 		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
@@ -441,10 +431,18 @@ struct BrakeeData_t {
 int BrakeDebounceMs = 2;
 int BrakeOffTimeMS = 4000; // afster 4s speed 0 and brake press stop teh brake lihj
 
+void MotMakeLost(){
+	MotSpeed = SpeedInvalid;
+}
+//does the mot lost too
 void Task_Brake(){
 	uint32_t now;
 	int BrakeHide = 0;
 	now = HAL_GetTick();
+	if( now - MotRx.LastRcvGood > MotNoRxMaxMs){
+		//Assume lost com or off
+		MotMakeLost();
+	}
 	int BrakeIn = HAL_GPIO_ReadPin(BRAKE_IN_GPIO_Port, BRAKE_IN_Pin);
 	if( Brake.state != BrakeIn ){
 		Brake.LastChg= now;
@@ -454,7 +452,7 @@ void Task_Brake(){
 	}
 	BrakeHide = 0; //Don't hide default
 	if(BrakeIn == 0 ){ // active
-		if( SpeedSensor == SpeedNoMove ){
+		if( MotSpeed == SpeedNoMove ){
 			if( Brake.stoped == 0  ){
 				Brake.stoped =1;  // stop first seen
 				Brake.StropedStart = now;//Start counting tile
@@ -491,7 +489,7 @@ void DoDbgTx(int *Cnt){
 		*Cnt= 0;
 	}
 }
-
+//for debug We send motor just recived info on edk tx once evey n
 void MotDbg( char *str){
 	int n;
 	if ( EdkRx.huart->gState ==  HAL_UART_STATE_READY ){
@@ -568,11 +566,6 @@ struct UsbTask_t {
 	int LastNRx; //to detect  new char arrival on usb rx
 	uint32_t StatusErr;
 }UsbTh;
-
-int UsbIsDone(){
-	//We sent echo w/o waiting writing in dr but we too send via dma what affect state
-	return (UsbRx.huart->Instance->SR & UART_FLAG_TXE ) &&(	UsbRx.huart->gState ==  HAL_UART_STATE_READY ) ;
-}
 
 void DoHelp(){
 	Log("\n?\n");
@@ -663,7 +656,7 @@ void UCmdCheck(){
 	if( UsbRx.nRx <=  UsbTh.LastNRx )
 		return;
 	if( UsbRx.nRx >=  UsbRx.RxMax ){
-		//shirt ? trash
+		//shift ? trash
 	}
 	//local ehco if no data to send direct handlign else put to what to send or discard ;
 	Log("%c",UsbRx.RxBuf[UsbTh.LastNRx]);
@@ -684,7 +677,7 @@ void UCmdCheck(){
 		__enable_irq();
 	}
 	else
-		n = UsbTh.LastNRx+1; //use all no trime
+		n =  UsbRx.nRx; // UsbRx.nRx +1 is bad mean 1 char/ms/loops but race of use UsbRx.nRx is high without trim
 
 	// check if we have \n if not not evben check stop using nRx racy but n from now
 	if( n <1 )
