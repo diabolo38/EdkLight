@@ -6,12 +6,14 @@
  */
 #include "main.h"
 #include <string.h>
+__weak void LbutSetup(){
+}
 
 #define inrange( x , min , max ) ( ((x)>= (min)) && ((x)<=(max)) )
 #define MIN(a,b) ((a)<(b) ? (a):(b))
 
 int LongPressMs=3000;
-int ShortPressMs=500;
+int ShortPressMs=350;
 
 enum ButState_e {
 	BStWaitPress=0,
@@ -28,8 +30,10 @@ struct Lbut_t {
 	uint32_t LastShortTrain_p; //prev n -1 train
 } Lbut;
 
+//is reporte while button is till low/pressed
 void OnLongPressLight(){
 	//TODO
+	Log("Long\n");
 }
 
 #define LbutDbg(...)  (void)0
@@ -53,19 +57,11 @@ void LbutTrainKIll(){
 	Lbut.ShortCnt_p=Lbut.ShortCnt=0;
 }
 
-void LbutSetup(){
-	LbutDbg("Setup\n");
-}
-
 int  task_Lbut(uint32_t now, int ButLvl){
 	int prev=Lbut.Lvl;
 	if (Lbut.Lvl != ButLvl) {
 		if( ButLvl == 0 ) { //press
 			Lbut.State = BStLongWait;
-			if (now - Lbut.TLastChg > LongPressMs && Lbut.State == BStLongWait) {
-				Lbut.State = BStLongDone;
-				OnLongPressLight();//TODO fire action on long
-			}
 		}
 		else {//Release
 			 Lbut.State = BStWaitPress;
@@ -79,6 +75,15 @@ int  task_Lbut(uint32_t now, int ButLvl){
 		}
 		Lbut.TLastChg = now;
 		Lbut.Lvl = ButLvl;
+	}
+	else {
+		//no chg
+		if( ButLvl ==  0 ){
+			if( now -Lbut.TLastChg > LongPressMs  &&  Lbut.State == BStLongWait){
+				OnLongPressLight();
+				Lbut.State = BStLongDone; //Wai
+			}
+		}
 	}
 	if (ButLvl == 1) { // off
 		if( now - Lbut.TLastChg  > ShortPressMs*2 && Lbut.ShortCnt ){

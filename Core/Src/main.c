@@ -56,6 +56,8 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Task_Ligth();
 void MotDbg( char *str);
+
+void SaveSetting();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -87,16 +89,13 @@ struct UartRcv_t {
 // Led set by process and then  toggle once by idle after short time is better
 //   led blink until rx is ok ,if not bug f/W stuck ?
 //   "static" led level high/low is the light sniffed level
-int LedTogleTick=5; // 1/33 of edk repeat period
-uint32_t LedSetTick; //we may use last rx good too
-int ToggleLed=0;
-volatile int light_upd; // flags set when reception done to activate  light value updated task (reset once done)
+volatile int light_upd; // flags set when edk reception done (potential light,speed  change )
 int LightOn=0; // set by process to sniffed light  value
 int LightOn_p=1; // set by process to sniffed light  value
 int OnLvl_p=0;
 volatile int BrakeActive=0;
 int FlightPwm = 0; //may init by ee or chg by button combo
-
+uint32_t LedSetTick;
 struct GlobStatus_t gStats;
 //todo below make init value from nvm
 volatile int OnLvl=512;
@@ -109,7 +108,7 @@ char MotInfo[64];
 int MotSpeed;
 const int SpeedInvalid=0x7777; //until more than  noNove shall do
 const int SpeedNoMove=0x0707;
-int MotNoRxMaxMs = 1000; //notmlay 15fps so 500ms 1s plus chal be set off
+int MotNoRxMaxMs = 1000; //normaly 15fps so 500ms+  well set invaldi speed
 int MotTorque;
 uint8_t MotStatus;
 
@@ -370,16 +369,22 @@ void RxReset( struct UartRcv_t  *Rx){
 }
 
 void LedCheck(){
-	if( ToggleLed  ){
-		if( HAL_GetTick() - LedSetTick > LedTogleTick ){
-			ToggleLed=0;
-			HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-		}
+	if( HAL_GetTick() - LedSetTick > 250 ){
+		LedSetTick = HAL_GetTick();
+		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 	}
 }
 
 #define inrange( x , min , max ) ( ((x)>= (min)) && ((x)<=(max)) )
 #define MIN(a,b) ((a)<(b) ? (a):(b))
+
+int SetupStayMS=1000; //time/Speed each ligh level stay before next
+struct Setup_t {
+	unsigned SetupActiv : 1;
+	uint8_t RepCnt;
+	uint16_t CurLvl;
+	uint32_t StepStartTick;
+}Setup;
 
 enum ButState_e {
 	BStWaitPress=0,
@@ -387,6 +392,17 @@ enum ButState_e {
 	BStLongDone = 2 , // wait long done action now wait release or else
 };
 
+void LbutSetup(){
+	Log("Setup\n");
+	if( 1 ){ //todo enable on ligh on only ?
+		if( Setup.SetupActiv == 0 ){
+			Setup.SetupActiv = 1;
+			Setup.RepCnt = 0;
+			Setup.StepStartTick = HAL_GetTick();
+			Setup.CurLvl = OnLvl;
+		}
+	}
+}
 /**
  *
  * @param lvl 0..1024
@@ -394,30 +410,61 @@ enum ButState_e {
 void Light_SetLvl(int lvl){
 	htim1.Instance->CCR2 = lvl; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
 }
+//Call only if activ
+int  SetupLvl(uint32_t now) {
+	if (now - Setup.StepStartTick > SetupStayMS) {
+		Setup.CurLvl += 1024 / 8;
+		if (Setup.CurLvl > 1024+127 ) { //We want a case 100%
+			if (Setup.RepCnt++ > 3) {
+				Setup.SetupActiv =0;
+				Log("Setup cancel\n");
+				return OnLvl;
+			}
+			Setup.CurLvl = 128;
+		}
+		Setup.StepStartTick = now;
+		Log("Setup %d\n",Setup.CurLvl);
+	}
+
+	return  Setup.CurLvl; //full on when but pressed unless some pause
+}
+
+void ChgLevel(){
+	Setup.SetupActiv = 0;
+	Log("Setup chg %d => %d\n", OnLvl, Setup.CurLvl);
+	OnLvl = Setup.CurLvl == 1024 ? 1025 :  Setup.CurLvl  ; //the loop roll at 1024 but we want dc full on not 999.9%  pwm
+	SaveSetting();
+}
+
 void Task_Ligth(){
 	uint32_t now;
 	int ButChg;
-	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
 
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
-	now= LedSetTick= HAL_GetTick();
-	if( light_upd ){
-		ToggleLed=-1;
-		light_upd=0;
+	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
+	now = HAL_GetTick();
+	ButChg = task_Lbut( now, ButLvl);
+	if( ButChg && Setup.SetupActiv  ){
+		//capture current level
+		ChgLevel();
+
 	}
 
-	ButChg = task_Lbut( now, ButLvl);
-
-	if( LightOn != LightOn_p ||OnLvl != OnLvl_p || ButChg ){
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p || ButChg || Setup.SetupActiv ){
 		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
+
 		IsOn = LightOn || ButLvl==0;
 		//When pulse press and on we shall set off few msec to emphasis light pulse
 		//WHen main light is short pulse may be used to toogle hgh/lwo beam hih/low
 		if( FlightPwm ){
-			OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
-			Light_SetLvl(IsOn ? OnLv  : 0);
+			if( Setup.SetupActiv ){
+				OnLv = SetupLvl(now);
+			}
+			else
+				OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
+			Light_SetLvl(IsOn || Setup.SetupActiv  ? OnLv  : 0);
+			//We repeat Setup.SetupActiv as it may got off but even we wan't would be ok
 		}
 		else {
 			HAL_GPIO_WritePin(FLIGHT_PWM_GPIO_Port,FLIGHT_PWM_Pin, IsOn);
@@ -466,7 +513,7 @@ void Task_Brake(){
 				Brake.stoped =1;  // stop first seen
 				Brake.StropedStart = now;//Start counting tile
 			}
-			else { //keep stoped
+			else { // keep stoped check time for hiding stoping brake light
 				BrakeHide = now - Brake.StropedStart > BrakeOffTimeMS;
 			}
 		}
