@@ -878,6 +878,7 @@ int main(void)
 	  Task_Brake();
 	  LedCheck();
 	  Task_Ligth();
+	  Task_Horn();
 	  if( trace_en){
 		  configure_tracing();
 		  trace_en = 0;
