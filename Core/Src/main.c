@@ -387,7 +387,13 @@ enum ButState_e {
 	BStLongDone = 2 , // wait long done action now wait release or else
 };
 
-
+/**
+ *
+ * @param lvl 0..1024
+ */
+void Light_SetLvl(int lvl){
+	htim1.Instance->CCR2 = lvl; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
+}
 void Task_Ligth(){
 	uint32_t now;
 	int ButChg;
@@ -395,7 +401,10 @@ void Task_Ligth(){
 
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, LightOn); // led is on when writing 0 (connect from vcc to port)
 	now= LedSetTick= HAL_GetTick();
-	ToggleLed=-1;
+	if( light_upd ){
+		ToggleLed=-1;
+		light_upd=0;
+	}
 
 	ButChg = task_Lbut( now, ButLvl);
 
@@ -408,7 +417,7 @@ void Task_Ligth(){
 		//WHen main light is short pulse may be used to toogle hgh/lwo beam hih/low
 		if( FlightPwm ){
 			OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
-			htim1.Instance->CCR1 = IsOn ? OnLv  : 0; //OnLvl 1 pulse low all over hight 1025 (arr+1) for full on
+			Light_SetLvl(IsOn ? OnLv  : 0);
 		}
 		else {
 			HAL_GPIO_WritePin(FLIGHT_PWM_GPIO_Port,FLIGHT_PWM_Pin, IsOn);
@@ -516,6 +525,8 @@ void InitLight(){
 	FlightPwm=1; //get from ee
 	htim1.Instance->CCR1 = 0; //Set off default before first  update done
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
+	Light_SetLvl(0);
 }
 
 struct UCmd_t {
@@ -819,10 +830,7 @@ int main(void)
 	  }
 	  Task_Brake();
 	  LedCheck();
-	  if( light_upd){
-		  Task_Ligth();
-		  light_upd=0;
-	  }
+	  Task_Ligth();
 	  if( trace_en){
 		  configure_tracing();
 		  trace_en = 0;
