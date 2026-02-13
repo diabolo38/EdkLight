@@ -68,6 +68,14 @@ extern int LongPressMs;
 extern int ShortPressMs;
 int task_Lbut();
 
+int Lbut_GetLastEvent();
+void Lbut_EventCb(int ev); //opitonal weak define ev see below (call on release )
+enum Lbut_Ev_e {
+	Lbut_EvShort =1,
+	Lbut_EvNorm  =2,
+	Lbut_EvLong = 3,
+};
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

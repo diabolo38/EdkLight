@@ -90,17 +90,19 @@ struct UartRcv_t {
 //   led blink until rx is ok ,if not bug f/W stuck ?
 //   "static" led level high/low is the light sniffed level
 volatile int light_upd; // flags set when edk reception done (potential light,speed  change )
-int LightOn=0; // set by process to sniffed light  value
-int LightOn_p=1; // set by process to sniffed light  value
-int OnLvl_p=0;
-volatile int BrakeActive=0;
+volatile int LightOn=0; // set by com of edk+man when chanign one call SetLighON if nto then udpate wil loccur and net light task
+volatile int EdkLightOn=0; // set by process to sniffed light  value
+volatile int ManLightOn=0; // set by process to sniffed light  value
+int LightOn_p=1; //task previous light level used (chg detection)
+int OnLvl_p=0;   // previous ser ligh level
+int HiBeam, HiBeam_p;
 int FlightPwm = 0; //may init by ee or chg by button combo
 uint32_t LedSetTick;
 struct GlobStatus_t gStats;
 //todo below make init value from nvm
 volatile int OnLvl=512;
 
-#define MinLongPressMs 1000
+#define MinLongPressMs 1000  //ee read clip value
 
 //motor
 int MotRcvCnt=0;
@@ -158,7 +160,7 @@ int RxValidate(struct UartRcv_t *Rx) {
 void  EdkProcess(struct UartRcv_t *Rx){
 	if( RxValidate(Rx)==0 ){
 		Rx->LastRcvGood = HAL_GetTick();
-		LightOn =Rx->RxBuf[1]&0x01; // bit 0 of control motor flags
+		EdkLightOn =Rx->RxBuf[1]&0x01; // bit 0 of control motor flags
 		light_upd=1;
 	}else {
 		Rx->BadRx++;// shit rx 1 byte ?
@@ -403,6 +405,22 @@ void LbutSetup(){
 		}
 	}
 }
+
+void SetLighOn(){
+	LightOn=EdkLightOn|ManLightOn;
+}
+
+void Lbut_EventCb(int event){
+	switch( event ){
+	case Lbut_EvShort :
+		HiBeam= !HiBeam;
+	break;
+	case Lbut_EvLong :
+		ManLightOn = ! ManLightOn;
+		SetLighOn();
+	break;
+	}
+}
 /**
  *
  * @param lvl 0..1024
@@ -443,26 +461,30 @@ void Task_Ligth(){
 	uint8_t ButLvl =  HAL_GPIO_ReadPin(BUT_LIGHT_GPIO_Port, BUT_LIGHT_Pin);
 	now = HAL_GetTick();
 	ButChg = task_Lbut( now, ButLvl);
-	if( ButChg && Setup.SetupActiv  ){
-		//capture current level
-		ChgLevel();
 
+	if( ButChg && Setup.SetupActiv  ){ //not that setup is entered after reste tiemof button after 3+2 pulse
+		ChgLevel(); //capture current level when change while setup active (do not wait release)
 	}
+	SetLighOn();
 
-	if( LightOn != LightOn_p ||OnLvl != OnLvl_p || ButChg || Setup.SetupActiv ){
+
+	if( LightOn != LightOn_p ||OnLvl != OnLvl_p || ButChg || Setup.SetupActiv || HiBeam != HiBeam_p){
 		int IsOn, OnLv;
 		LightOn_p = LightOn;
 		OnLvl_p = OnLvl;
+		HiBeam_p = HiBeam;
 
-		IsOn = LightOn || ButLvl==0;
+		IsOn = LightOn || ButLvl==0; //When pressed force high/on
 		//When pulse press and on we shall set off few msec to emphasis light pulse
 		//WHen main light is short pulse may be used to toogle hgh/lwo beam hih/low
 		if( FlightPwm ){
 			if( Setup.SetupActiv ){
 				OnLv = SetupLvl(now);
 			}
-			else
-				OnLv = ButLvl ==0 ?  1025 : OnLvl; //full on when but pressed unless some pause
+			else{
+
+				OnLv = ButLvl ==0 || HiBeam ?  1025 : OnLvl; //full on when but pressed or high  unless some pause ? or hih/low
+			}
 			Light_SetLvl(IsOn || Setup.SetupActiv  ? OnLv  : 0);
 			//We repeat Setup.SetupActiv as it may got off but even we wan't would be ok
 		}

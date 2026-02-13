@@ -6,14 +6,22 @@
  */
 #include "main.h"
 #include <string.h>
+
 __weak void LbutSetup(){
 }
+
+// on release
+__weak void Lbut_EventCb(int){
+
+}
+
 
 #define inrange( x , min , max ) ( ((x)>= (min)) && ((x)<=(max)) )
 #define MIN(a,b) ((a)<(b) ? (a):(b))
 
 int LongPressMs=3000;
 int ShortPressMs=350;
+
 
 enum ButState_e {
 	BStWaitPress=0,
@@ -25,6 +33,7 @@ struct Lbut_t {
 	uint8_t  Lvl; //Actiev level
 	uint8_t  State; // state for long shot detect
 	uint8_t  ShortCnt,ShortCnt_p;
+	uint8_t  LastEvent; // get clear when read
 	uint32_t TLastChg;
 	uint32_t LastShortTrain;
 	uint32_t LastShortTrain_p; //prev n -1 train
@@ -57,6 +66,16 @@ void LbutTrainKIll(){
 	Lbut.ShortCnt_p=Lbut.ShortCnt=0;
 }
 
+int Lbut_GetLastEvent(){
+	int ev = Lbut.LastEvent;
+	Lbut.LastEvent= 0;
+	return ev;
+}
+static void Lbut_DoEvent(int ev){
+	Lbut.LastEvent=ev;
+	Lbut_EventCb(ev);
+}
+
 int  task_Lbut(uint32_t now, int ButLvl){
 	int prev=Lbut.Lvl;
 	if (Lbut.Lvl != ButLvl) {
@@ -69,7 +88,14 @@ int  task_Lbut(uint32_t now, int ButLvl){
 				 //short pressed
 				 Lbut.ShortCnt = MIN(10, Lbut.ShortCnt+1); // clip avodi 255 loop
 				 Lbut.LastShortTrain=now;
+				 Lbut_DoEvent(Lbut_EvShort);
 			 }else {
+				 if( now -Lbut.TLastChg > LongPressMs){
+					 Lbut_DoEvent(Lbut_EvLong);
+				 }
+				 else {
+					 Lbut_DoEvent(Lbut_EvLong);
+				 }
 				 LbutTrainKIll();
 			 }
 		}
@@ -80,7 +106,7 @@ int  task_Lbut(uint32_t now, int ButLvl){
 		//no chg
 		if( ButLvl ==  0 ){
 			if( now -Lbut.TLastChg > LongPressMs  &&  Lbut.State == BStLongWait){
-				OnLongPressLight();
+				OnLongPressLight(); //eray notice before release
 				Lbut.State = BStLongDone; //Wai
 			}
 		}
