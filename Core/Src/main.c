@@ -526,9 +526,9 @@ void Task_Brake(){
 		Brake.LastChg= now;
 		Brake.state = BrakeIn;
 	}
-	if( now - Brake.LastChg < BrakeDebounceMs ){
-		return;
-	}
+//	if( now - Brake.LastChg < BrakeDebounceMs ){
+//		return;
+//	}
 	BrakeHide = 0; //Don't hide default
 	if(BrakeIn == 0 ){ // active
 		if( MotSpeed == SpeedNoMove ){
@@ -543,6 +543,9 @@ void Task_Brake(){
 		else {
 			Brake.stoped = 0; //move hence not stoped
 		}
+	}
+	else {
+		Brake.stoped = 0;
 	}
 	Brake.Active = (BrakeIn==0) && (! BrakeHide)  ;
 	HAL_GPIO_WritePin(BRAKE_ON_GPIO_Port, BRAKE_ON_Pin, Brake.Active);
