@@ -396,7 +396,7 @@ enum ButState_e {
 
 void LbutSetup(){
 	Log("Setup\n");
-	if( 1 ){ //todo enable on ligh on only ?
+	if( LightOn ){ // enable on light on only  still possibel w/o mcd/moto via button on first
 		if( Setup.SetupActiv == 0 ){
 			Setup.SetupActiv = 1;
 			Setup.RepCnt = 0;
@@ -524,6 +524,7 @@ void Task_Brake(){
 	int BrakeIn = HAL_GPIO_ReadPin(BRAKE_IN_GPIO_Port, BRAKE_IN_Pin);
 	if( Brake.state != BrakeIn ){
 		Brake.LastChg= now;
+		Brake.state = BrakeIn;
 	}
 	if( now - Brake.LastChg < BrakeDebounceMs ){
 		return;
