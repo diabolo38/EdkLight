@@ -18,7 +18,6 @@ Green/Brake   6         4 Yellow/RX
 		  
  Check on mine (female view )
  1 black   GNB black ok
- 
  2 blue    VBat
  3 red     Vin
  4 yellow  Rx  ok

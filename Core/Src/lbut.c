@@ -94,7 +94,7 @@ int  task_Lbut(uint32_t now, int ButLvl){
 					 Lbut_DoEvent(Lbut_EvLong);
 				 }
 				 else {
-					 Lbut_DoEvent(Lbut_EvLong);
+					 Lbut_DoEvent(Lbut_EvNorm);
 				 }
 				 LbutTrainKIll();
 			 }
